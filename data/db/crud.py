@@ -142,6 +142,8 @@ def get_alerts(
     from_dt: Optional[datetime] = None,
     to_dt: Optional[datetime] = None,
     threat_type: Optional[str] = None,
+    severity: Optional[str] = None,
+    mitigation_status: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Alert]:
@@ -158,6 +160,10 @@ def get_alerts(
         q = q.filter(Alert.detected_at <= to_dt)
     if threat_type:
         q = q.filter(Alert.threat_type == threat_type)
+    if severity:
+        q = q.filter(Alert.severity == severity)
+    if mitigation_status:
+        q = q.filter(Alert.mitigation_status == mitigation_status)
     return q.order_by(desc(Alert.impossibility_score)).offset(offset).limit(limit).all()
 
 
@@ -187,6 +193,63 @@ def count_alerts_today(session: Session) -> int:
     today = datetime.utcnow().date()
     start = datetime(today.year, today.month, today.day)
     return session.query(func.count(Alert.id)).filter(Alert.created_at >= start).scalar() or 0
+
+
+# ─── Mitigation CRUD ──────────────────────────────────────────────────────────────────
+
+def apply_mitigation(
+    session: Session,
+    alert_id,
+    action: str,
+    applied_by: str,
+    notes: Optional[str] = None,
+) -> Optional[Alert]:
+    from scoring.mitigation_engine import get_mitigation_engine
+    try:
+        return get_mitigation_engine().apply(session, alert_id, action, applied_by, notes)
+    except ValueError:
+        return None
+
+
+def dismiss_mitigation(
+    session: Session,
+    alert_id,
+    dismissed_by: str,
+    reason: str,
+) -> Optional[Alert]:
+    from scoring.mitigation_engine import get_mitigation_engine
+    try:
+        return get_mitigation_engine().dismiss(session, alert_id, dismissed_by, reason)
+    except ValueError:
+        return None
+
+
+def escalate_alert(
+    session: Session,
+    alert_id,
+    escalated_by: str,
+) -> Optional[Alert]:
+    from scoring.mitigation_engine import get_mitigation_engine
+    try:
+        return get_mitigation_engine().escalate(session, alert_id, escalated_by)
+    except ValueError:
+        return None
+
+
+def get_alerts_pending_mitigation(
+    session: Session,
+    severity: Optional[str] = None,
+    limit: int = 50,
+) -> list[Alert]:
+    q = session.query(Alert).filter(Alert.mitigation_status == "pending")
+    if severity:
+        q = q.filter(Alert.severity == severity)
+    return q.order_by(desc(Alert.impossibility_score)).limit(limit).all()
+
+
+def get_mitigation_stats(session: Session) -> dict:
+    from scoring.mitigation_engine import get_mitigation_engine
+    return get_mitigation_engine().get_mitigation_summary(session)
 
 
 def get_weekly_stats(session: Session) -> dict:

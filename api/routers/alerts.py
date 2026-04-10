@@ -1,5 +1,5 @@
 """
-api/routers/alerts.py — Alert CRUD endpoints with SSE live stream.
+api/routers/alerts.py — Alert CRUD + Mitigation endpoints with SSE live stream.
 """
 from __future__ import annotations
 
@@ -14,9 +14,15 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from api.auth import get_current_user
-from api.schemas import AlertOut, AlertStatusUpdate, AlertAssign
+from api.schemas import (
+    AlertOut, AlertStatusUpdate, AlertAssign,
+    MitigationApplyRequest, MitigationDismissRequest,
+    MitigationEscalateRequest, MitigationSummaryOut,
+)
 from data.db.crud import (
-    get_alert, get_alerts, update_alert_status, assign_alert, count_alerts_today
+    get_alert, get_alerts, update_alert_status, assign_alert, count_alerts_today,
+    apply_mitigation, dismiss_mitigation, escalate_alert,
+    get_alerts_pending_mitigation, get_mitigation_stats,
 )
 from data.db.session import get_db
 
@@ -30,6 +36,8 @@ async def list_alerts(
     scrip: Optional[str] = Query(None),
     from_date: Optional[datetime] = Query(None),
     to_date: Optional[datetime] = Query(None),
+    severity: Optional[str] = Query(None, description="low/medium/high/critical"),
+    mitigation_status: Optional[str] = Query(None, description="pending/applied/dismissed/escalated"),
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -43,6 +51,8 @@ async def list_alerts(
         scrip=scrip,
         from_dt=from_date,
         to_dt=to_date,
+        severity=severity,
+        mitigation_status=mitigation_status,
         limit=limit,
         offset=offset,
     )
@@ -54,14 +64,10 @@ async def live_alerts(
     db: Session = Depends(get_db),
     _user: dict = Depends(get_current_user),
 ):
-    """
-    SSE stream of new alerts. Polls DB every 5 seconds for alerts created after connection.
-    """
+    """SSE stream of new alerts. Polls DB every 5 seconds."""
     async def event_generator() -> AsyncGenerator[str, None]:
         seen_ids: set[str] = set()
         start_time = datetime.utcnow()
-
-        # Send initial connection confirmation
         yield f"data: {json.dumps({'type': 'connected', 'timestamp': start_time.isoformat()})}\n\n"
 
         while True:
@@ -80,11 +86,32 @@ async def live_alerts(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ── Mitigation summary must be declared BEFORE /{alert_id} to avoid routing conflict ──
+
+@router.get("/mitigation/summary", response_model=MitigationSummaryOut)
+async def mitigation_summary(
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Aggregated mitigation statistics for the dashboard."""
+    stats = get_mitigation_stats(db)
+    return MitigationSummaryOut(**stats)
+
+
+@router.get("/mitigation/pending", response_model=list[AlertOut])
+async def mitigation_pending(
+    severity: Optional[str] = Query(None, description="Filter by severity"),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """List all alerts with mitigation_status=pending."""
+    alerts = get_alerts_pending_mitigation(db, severity=severity, limit=limit)
+    return [AlertOut.model_validate(a) for a in alerts]
 
 
 @router.get("/{alert_id}", response_model=AlertOut)
@@ -93,7 +120,7 @@ async def get_single_alert(
     db: Session = Depends(get_db),
     _user: dict = Depends(get_current_user),
 ):
-    """Retrieves a single alert with full evidence."""
+    """Retrieves a single alert with full evidence and mitigation state."""
     alert = get_alert(db, alert_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
@@ -123,6 +150,48 @@ async def assign_to_analyst(
 ):
     """Assigns alert to an analyst by name."""
     alert = assign_alert(db, alert_id, body.analyst)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return AlertOut.model_validate(alert)
+
+
+@router.post("/{alert_id}/mitigate", response_model=AlertOut)
+async def mitigate_alert(
+    alert_id: uuid.UUID,
+    body: MitigationApplyRequest,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Apply a mitigation action to the alert."""
+    alert = apply_mitigation(db, alert_id, body.action, body.applied_by, body.notes)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return AlertOut.model_validate(alert)
+
+
+@router.post("/{alert_id}/dismiss-mitigation", response_model=AlertOut)
+async def dismiss_alert_mitigation(
+    alert_id: uuid.UUID,
+    body: MitigationDismissRequest,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Dismiss the recommended mitigation for an alert."""
+    alert = dismiss_mitigation(db, alert_id, body.dismissed_by, body.reason)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    return AlertOut.model_validate(alert)
+
+
+@router.post("/{alert_id}/escalate", response_model=AlertOut)
+async def escalate_to_sebi(
+    alert_id: uuid.UUID,
+    body: MitigationEscalateRequest,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Escalate alert to SEBI enforcement."""
+    alert = escalate_alert(db, alert_id, body.escalated_by)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     return AlertOut.model_validate(alert)

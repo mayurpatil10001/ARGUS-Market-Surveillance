@@ -3,11 +3,12 @@ import { useQuery } from 'react-query'
 import { api } from '../api/client'
 
 const NAV = [
-  { to:'/alerts',  label:'Live Alerts',    icon: <IconRadar /> },
-  { to:'/dna',     label:'Account DNA',    icon: <IconDNA /> },
-  { to:'/network', label:'Network Graph',  icon: <IconNetwork /> },
-  { to:'/cases',   label:'Case Builder',   icon: <IconCase /> },
-  { to:'/summary', label:'Weekly Summary', icon: <IconChart /> },
+  { to:'/alerts',     label:'Live Alerts',      icon: <IconRadar /> },
+  { to:'/dna',        label:'Account DNA',      icon: <IconDNA /> },
+  { to:'/network',    label:'Network Graph',    icon: <IconNetwork /> },
+  { to:'/cases',      label:'Case Builder',     icon: <IconCase /> },
+  { to:'/summary',    label:'Weekly Summary',   icon: <IconChart /> },
+  { to:'/mitigation', label:'Mitigation Center',icon: <IconShield /> },
 ]
 
 function IconRadar() {
@@ -61,6 +62,14 @@ function IconChart() {
       <rect x="2" y="9" width="3" height="5" fill="currentColor" opacity="0.7"/>
       <rect x="6.5" y="5" width="3" height="9" fill="currentColor" opacity="0.85"/>
       <rect x="11" y="2" width="3" height="12" fill="currentColor"/>
+    </svg>
+  )
+}
+function IconShield() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path d="M8 2L3 4.5V8c0 3 2.5 5 5 6 2.5-1 5-3 5-6V4.5L8 2z" stroke="currentColor" strokeWidth="1" fill="none"/>
+      <path d="M5.5 8l1.7 1.7L10.5 6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   )
 }

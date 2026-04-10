@@ -95,6 +95,23 @@ async def lifespan(app: FastAPI):
         logger.warning(f"FingerprintStore load failed: {exc}")
         _app_state["fp_store"] = None
 
+    logger.info("Loading Mitigation engine...")
+    try:
+        from scoring.mitigation_engine import get_mitigation_engine
+        _app_state["mitigation_engine"] = get_mitigation_engine()
+    except Exception as exc:
+        logger.warning(f"MitigationEngine load failed: {exc}")
+        _app_state["mitigation_engine"] = None
+
+    logger.info("Loading Misinfo detector...")
+    try:
+        from models.misinfo.detector import _get_pipeline
+        _get_pipeline()
+        _app_state["misinfo_model"] = "loaded"
+    except Exception as exc:
+        logger.warning(f"Misinfo model load failed: {exc}")
+        _app_state["misinfo_model"] = None
+
     logger.info("ARGUS startup complete.")
     yield
 
@@ -199,6 +216,8 @@ async def health_check(db: Session = Depends(get_db)):
         "autoencoder": "loaded" if _app_state.get("autoencoder") else "not_loaded",
         "zero_day": "loaded" if _app_state.get("zero_day") else "not_loaded",
         "fingerprint_store": "loaded" if _app_state.get("fp_store") else "not_loaded",
+        "mitigation_engine": "loaded" if _app_state.get("mitigation_engine") else "not_loaded",
+        "misinfo_model": _app_state.get("misinfo_model") or "not_loaded",
     }
 
     overall_status = "ok" if services.get("db") == "ok" else "degraded"

@@ -2,6 +2,7 @@ import axios from 'axios'
 import {
   mockAlerts, mockAccounts, mockTrades,
   mockNetwork23, mockWeeklySummary, mockHealth,
+  mockMitigationSummary, mockPendingMitigations,
 } from './mockData'
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8080'
@@ -125,6 +126,37 @@ export const api = {
   getNetworkForAccounts: async (params) => {
     if (USE_MOCK) { await delay(800); return { data: mockNetwork23 } }
     return client.get('/network', { params })
+  },
+
+  mitigateAlert: async (id, action, appliedBy = 'analyst', notes = '') => {
+    if (USE_MOCK) { await delay(300); return { data: { ok: true } } }
+    return client.post(`/alerts/${id}/mitigate`, { action, applied_by: appliedBy, notes })
+  },
+
+  dismissMitigation: async (id, dismissedBy = 'analyst', reason = 'Dismissed by analyst') => {
+    if (USE_MOCK) { await delay(300); return { data: { ok: true } } }
+    return client.post(`/alerts/${id}/dismiss-mitigation`, { dismissed_by: dismissedBy, reason })
+  },
+
+  escalateAlert: async (id, escalatedBy = 'analyst') => {
+    if (USE_MOCK) { await delay(300); return { data: { ok: true } } }
+    return client.post(`/alerts/${id}/escalate`, { escalated_by: escalatedBy })
+  },
+
+  getMitigationSummary: async () => {
+    if (USE_MOCK) { await delay(400); return { data: mockMitigationSummary } }
+    return client.get('/alerts/mitigation/summary')
+  },
+
+  getMitigationPending: async (severity) => {
+    if (USE_MOCK) {
+      await delay(400)
+      let list = [...mockPendingMitigations]
+      if (severity && severity !== 'all') list = list.filter(a => a.severity === severity)
+      return { data: list }
+    }
+    const params = severity && severity !== 'all' ? { severity } : {}
+    return client.get('/alerts/mitigation/pending', { params })
   },
 }
 

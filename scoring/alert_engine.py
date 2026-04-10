@@ -182,6 +182,14 @@ class AlertEngine:
             f"ZD={zero_day_score} OVERALL={overall} (threshold={self.threshold})"
         )
 
+        # 7.5 Attempt real-time social signal score (best-effort, never blocks alert flow)
+        social_signal_score_raw: float = 0.0
+        try:
+            from data.ingest.social_signal_fetcher import get_social_score_for_scrip
+            social_signal_score_raw = get_social_score_for_scrip(scrip)  # returns [0, 10]
+        except Exception as exc:
+            logger.debug(f"Social signal fetch skipped for {scrip}: {exc}")
+
         # 8. Create Alert if above threshold
         if overall >= self.threshold:
             alert = create_alert(
@@ -196,10 +204,42 @@ class AlertEngine:
                 dna_score=dna_score,
                 cross_market_score=cross_market_score,
                 zero_day_score=zero_day_score,
+                social_signal_score=social_signal_score_raw,
+                # misinfo_score stays 0.0 at creation — no text input from trade data
             )
+
+            # 9. Populate mitigation recommendation immediately
+            try:
+                from scoring.mitigation_engine import get_mitigation_engine
+                me = get_mitigation_engine()
+                rec = me.recommend(
+                    alert_score=overall,
+                    threat_type=getattr(alert, "threat_type", "market_manipulation"),
+                    scheme_type=scheme_type,
+                    gnn_score=gnn_score,
+                    dna_score=dna_score,
+                    zero_day_score=zero_day_score,
+                    social_signal_score=social_signal_score_raw / 10.0,  # normalize to [0,1] for engine
+                    misinfo_score=0.0,  # not available from trade data at creation time
+                )
+                alert.recommended_action = rec["recommended_action"]
+                alert.severity = rec["severity"]
+                alert.auto_mitigated = rec["auto_mitigate"]
+                alert.escalated_to_sebi = rec["escalate_to_sebi"]
+                alert.mitigation_notes = rec["rationale"]
+                if rec["auto_mitigate"]:
+                    alert.mitigation_status = "applied"
+                    alert.mitigation_applied_at = datetime.utcnow()
+                    alert.mitigation_applied_by = "argus_auto"
+                self.session.commit()
+                self.session.refresh(alert)
+            except Exception as exc:
+                logger.warning(f"Mitigation recommendation failed: {exc}")
+
             return alert
 
         return None
+
 
     def run_all_active_scrips(
         self,

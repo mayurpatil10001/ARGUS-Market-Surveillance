@@ -60,7 +60,7 @@ def main():
     )
     parser.add_argument(
         "--case",
-        choices=["pump_and_dump", "spoofing", "circular_trading", "all"],
+        choices=["pump_and_dump", "spoofing", "circular_trading", "social_manipulation", "all"],
         required=True,
         help="Which demo case to run",
     )
@@ -88,6 +88,14 @@ def main():
             print_verdict()
         except Exception:
             print("ERROR in circular_trading:")
+            traceback.print_exc()
+
+    if args.case in ("social_manipulation", "all"):
+        try:
+            from demo.real_cases.case_social_manipulation import print_verdict
+            print_verdict()
+        except Exception:
+            print("ERROR in social_manipulation:")
             traceback.print_exc()
 
 

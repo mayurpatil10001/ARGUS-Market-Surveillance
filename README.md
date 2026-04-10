@@ -8,7 +8,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.3.0-orange)](https://pytorch.org)
 [![torch-geometric](https://img.shields.io/badge/torch--geometric-2.7.0-red)](https://pyg.org)
 [![License](https://img.shields.io/badge/License-Proprietary-red)](#)
-[![Status](https://img.shields.io/badge/Status-10%2F10%20Verified-brightgreen)](#current-status)
+[![Status](https://img.shields.io/badge/Status-17%2F17%20Verified-brightgreen)](#current-status)
 
 ---
 
@@ -253,23 +253,35 @@ argus/
 │   │   ├── social_signal_fetcher.py   # NEW — social media threat signals
 │   │   └── generic_threat_adapter.py  # NEW — universal threat normalizer
 │   └── pipeline/           # Kafka stream processing & data cleaning
-├── scoring/                # Alert engine & scoring logic
+├── scoring/                # Alert engine, scoring logic & mitigation
+│   ├── alert_engine.py     # Orchestrates all 5 detection engines + social signal fetch
+│   └── mitigation_engine.py # Severity classification + recommended actions + auto-mitigation
 ├── dashboard/              # Streamlit multi-page surveillance dashboard
 │   ├── app.py              # Main entry point (Port 8501)
-│   └── pages/              # Live Alerts, Account DNA, Network Graph, Case Builder
+│   └── pages/              # Live Alerts, Account DNA, Network Graph, Case Builder, Mitigation Center
+│       ├── live_alerts.py
+│       ├── account_dna.py
+│       ├── network_graph.py
+│       ├── case_builder.py
+│       └── mitigation_center.py  # ✅ NEW — real-time mitigation triage
 ├── argus-dashboard/        # React/Vite military-grade terminal dashboard
 │   └── src/
-│       ├── pages/          # LiveAlerts, AccountDNA, NetworkView, CaseBuilder, WeeklySummary
-│       ├── components/     # 11 reusable UI components
+│       ├── pages/          # LiveAlerts, AccountDNA, NetworkView, CaseBuilder, WeeklySummary, MitigationCenter
+│       │   └── MitigationCenter.jsx  # ✅ NEW — donut chart + action table + triage controls
+│       ├── components/     # 12 reusable UI components
 │       └── api/            # Axios client + mock data layer
 ├── reports/                # SEBI-compliant PDF case generator
 ├── alembic/                # Database migration scripts
 ├── tests/                  # Pytest test suite (4 test modules)
 ├── demo/                   # Demo scenarios & synthetic fraud data
-│   ├── real_cases/         # 3 real-case detection scenarios
+│   ├── real_cases/         # 4 real-case detection scenarios
+│   │   ├── case_pump_dump.py
+│   │   ├── case_circular_trading.py
+│   │   ├── case_spoofing.py
+│   │   └── case_social_manipulation.py  # ✅ NEW — Reddit/Twitter pump + phishing
 │   ├── run_demo.py
 │   └── synthetic_fraud.py
-├── verify_argus.py         # 10-step full system verification suite
+├── verify_argus.py         # 17-step full system verification suite
 ├── .env                    # Environment variables (local dev)
 ├── .env.example            # Environment variable template
 ├── docker-compose.yml      # Full stack Docker orchestration
@@ -374,7 +386,7 @@ All services share `argus-net` bridge network. PostgreSQL data is persisted via 
 **Role:** SQLite database created automatically when running locally without PostgreSQL. Acts as a full local development database. In production, replaced by PostgreSQL. Created and managed by `data/db/session.py`.
 
 ### `verify_argus.py`
-**Role:** 10-step full system verification suite. Run from project root to confirm every component is working correctly — covers DB init, trained model weights, scoring engine, PDF generation, FastAPI app, AlertEngine, and the pump-and-dump real-case detection.
+**Role:** 17-step full system verification suite. Run from project root to confirm every component is working correctly — covers DB init, trained model weights, scoring engine, PDF generation, FastAPI app, AlertEngine, Mitigation Engine, social signal fetcher, misinfo detector, generic threat adapter, and the pump-and-dump real-case detection.
 
 ```bash
 python verify_argus.py
@@ -395,10 +407,17 @@ ARGUS FULL VERIFICATION SUITE
   [PASS] FastAPI app import
   [PASS] AlertEngine init (no Redis)
   [PASS] Demo: pump_and_dump run_detection()
+  [PASS] MitigationEngine recommend() logic
+  [PASS] MitigationEngine apply/dismiss/escalate (in-memory DB)
+  [PASS] Mitigation endpoints registered on router
+  [PASS] AlertOut + Mitigation schemas have all required fields
+  [PASS] Social signal fetcher — pump text scoring
+  [PASS] Misinfo detector — load weights + inference
+  [PASS] Generic threat adapter — normalize() + normalize_batch()
 
-Results: 10 PASSED  |  0 FAILED
+Results: 17 PASSED  |  0 FAILED
 ========================================================
-ARGUS is fully operational.
+ARGUS is fully operational. 17/17 verified.
 ```
 
 ---
@@ -1033,8 +1052,9 @@ Output is normalized trade DataFrames compatible with the scoring engine and GNN
 | `case_pump_dump.py` | XYZLTD pump & dump over 3 days | GNN burst coordination + Zero-Day price spike |
 | `case_circular_trading.py` | 5-entity circular trading ring | GNN ring topology + DNA wash-trading fingerprint |
 | `case_spoofing.py` | Large-order spoofing on illiquid scrip | GNN order imbalance + impossibility boosters |
+| `case_social_manipulation.py` | XYZTECH coordinated Reddit/Twitter pump + phishing | Social signal fetcher + Misinfo detector + Phishing adapter |
 
-Each exposes `run_detection()` → returns `{"overall_score": float, "scheme_type": str, "accounts_involved": list}`.
+Each exposes `run_detection()` → returns a result dict with `overall_score`, `scheme_type`, `accounts_involved`, and threat-specific scores.
 
 ---
 
@@ -1076,12 +1096,21 @@ alerts
 ├── dna_score (Float)
 ├── cross_market_score (Float)
 ├── zero_day_score (Float)
-├── social_signal_score (Float, default=0.0)   # NEW — social media threat level
-├── misinfo_score (Float, default=0.0)          # NEW — misinformation probability
-├── threat_type (String, default='market_manipulation')  # NEW — ThreatTypeEnum
+├── social_signal_score (Float, default=0.0)   # social media threat level
+├── misinfo_score (Float, default=0.0)          # misinformation probability
+├── threat_type (String, default='market_manipulation')  # ThreatTypeEnum
 ├── status (Enum: open/investigating/closed/false_positive)
 ├── case_file_path (String)
 ├── assigned_to (String)
+├── recommended_action (String, nullable)        # mitigation action key
+├── mitigation_status (String, default='pending') # pending/applied/dismissed/escalated
+├── mitigation_applied_at (DateTime, nullable)
+├── mitigation_applied_by (String, nullable)
+├── auto_mitigated (Boolean, default=False)
+├── mitigation_notes (String, nullable)          # rationale from MitigationEngine
+├── severity (String, default='medium')          # low/medium/high/critical
+├── escalated_to_sebi (Boolean, default=False)
+├── escalation_timestamp (DateTime, nullable)
 └── created_at (DateTime)
 
 sebi_cases
@@ -1148,11 +1177,16 @@ All subsequent requests: `Authorization: Bearer <token>`
 |---|---|---|---|
 | POST | `/auth/token` | ❌ | Get JWT token |
 | GET | `/health` | ❌ | System health & model status |
-| GET | `/alerts` | ✅ | List alerts (paginated, filtered) |
+| GET | `/alerts` | ✅ | List alerts (paginated; filter by status/severity/mitigation_status) |
 | GET | `/alerts/live` | ✅ | SSE real-time alert stream |
 | GET | `/alerts/{id}` | ✅ | Single alert detail |
 | POST | `/alerts/{id}/status` | ✅ | Update status |
 | POST | `/alerts/{id}/assign` | ✅ | Assign to analyst |
+| POST | `/alerts/{id}/mitigate` | ✅ | Apply recommended mitigation action |
+| POST | `/alerts/{id}/dismiss-mitigation` | ✅ | Dismiss mitigation recommendation |
+| POST | `/alerts/{id}/escalate` | ✅ | Escalate alert to SEBI enforcement |
+| GET | `/alerts/mitigation/summary` | ✅ | Aggregated mitigation statistics |
+| GET | `/alerts/mitigation/pending` | ✅ | List alerts pending mitigation (filterable by severity) |
 | GET | `/accounts/search` | ✅ | Search accounts |
 | GET | `/accounts/{id}/dna` | ✅ | Behavioral DNA + fraudster match |
 | GET | `/accounts/{id}/trades` | ✅ | Trade history |
@@ -1255,7 +1289,7 @@ docker-compose down
 
 ## Current Status
 
-**As of April 2026 — Fully Operational — 10/10 Verified**
+**As of April 2026 — Fully Operational — 17/17 Verified**
 
 | Component | Status | Notes |
 |---|---|---|
@@ -1263,28 +1297,31 @@ docker-compose down
 | **DNA Autoencoder** | [TRAINED] | `autoencoder_weights.pt` (341 KB) — trained on synthetic trade sequences |
 | **Zero-Day Ensemble** | [OK] Operational | Fit-on-demand; pyod 1.1.3 installed |
 | **Cross-Market Fusion** | [OK] Operational | DoWhy causal inference enabled |
-| **Social Signal Fetcher** | [OK] Operational | Keyword + velocity scoring; `social_signal_score` on Alert |
-| **Misinfo Detector** | [TRAINED] | `misinfo_weights.pkl` auto-trained; TF-IDF + LR, CV F1 > 0.90 |
-| **Generic Threat Adapter** | [OK] Operational | Phishing / transaction / activity log normalizer |
+| **Social Signal Fetcher** | [OK] Operational | Keyword + velocity scoring; `social_signal_score` on Alert; real-time fetch at alert creation |
+| **Misinfo Detector** | [TRAINED] | `misinfo_weights.pkl` on disk; TF-IDF + LR, CV F1 > 0.90 |
+| **Generic Threat Adapter** | [OK] Operational | Phishing / transaction / activity log normalizer; `normalize_batch()` available |
+| **Mitigation Engine** | [OK] Operational | severity + recommended_action + auto_mitigate on every alert; 5 API endpoints |
 | **Scoring Engine** | [OK] Upgraded | Poisson null model + impossibility boosters + supplementary scores |
-| **FastAPI API** | [OK] Running | Port 8080, JWT auth, SSE live stream |
-| **Streamlit Dashboard** | [OK] Running | Port 8501, 4 pages, dark military theme |
-| **React Dashboard** | [OK] Running | Port 5173, 5 pages, 11 components, D3.js graphs |
+| **FastAPI API** | [OK] Running | Port 8080, JWT auth, SSE live stream, 19 endpoints |
+| **Streamlit Dashboard** | [OK] Running | Port 8501, 5 pages incl. Mitigation Center |
+| **React Dashboard** | [OK] Running | Port 5173, 6 pages, 12 components, D3.js graphs |
 | **SEBI PDF Generator** | [OK] Working | 8-page case reports with evidence tables |
-| **SQLite DB** | [OK] Active | Schema refreshed; all columns including social/misinfo scores present |
-| **Demo Scenarios** | [OK] Live | 3 real-case scenarios verified end-to-end |
-| **Verification Suite** | 10/10 PASSED | `verify_argus.py` — all checks pass on Windows without errors |
+| **SQLite DB** | [OK] Active | All 26 columns on alerts table; misinfo + mitigation fields present |
+| **Demo Scenarios** | [OK] Live | 4 scenarios: pump_dump, circular_trading, spoofing, social_manipulation |
+| **Verification Suite** | 17/17 PASSED | `verify_argus.py` — all 17 checks pass on Windows without errors |
 | **torch-geometric** | 2.7.0 | Installed and verified importable |
 | **pyod** | Installed | Required by Zero-Day Ensemble |
 
 **Functional highlights:**
-- **6-Engine Architecture**: GNN, DNA, Cross-Market, Zero-Day, Social Signal, and Misinformation Detector all operational.
-- **Dual Dashboard**: Both Streamlit (quick-launch) and React (pitch-grade terminal UI) fully operational.
+- **7-Engine + Mitigation Architecture**: GNN, DNA, Cross-Market, Zero-Day, Social Signal, Misinfo Detector, and Real-Time Mitigation Engine all operational.
+- **Dual Dashboard**: Both Streamlit (quick-launch) and React (pitch-grade terminal UI) fully operational — both include Mitigation Center page.
 - **Trained Models**: GNN, DNA autoencoder, and Misinfo classifier have saved weights; load at API startup in < 1 second.
-- **High-Performance Graph Build**: O(n^2) loops eliminated; graph construction < 1s on 1000-trade windows.
-- **Real-Case Detection**: `pump_and_dump`, `circular_trading`, and `spoofing` scenarios produce correct scheme type classification with non-NaN scores.
+- **Real-Time Mitigation**: Every new alert gets `severity`, `recommended_action`, `auto_mitigated`, and `escalated_to_sebi` populated at creation time.
+- **Real Social Signal Fetch**: `social_signal_score` is now fetched live via `social_signal_fetcher` at alert creation time (best-effort, non-blocking).
+- **Auto-Mitigation**: Critical pump-and-dump/spoofing alerts and phishing threats are auto-acted without analyst intervention.
+- **4 Real-Case Demos**: `pump_and_dump`, `circular_trading`, `spoofing`, and `social_manipulation` (Reddit/Twitter pump + phishing) all verified end-to-end.
 - **Offline Demo Mode**: React dashboard runs on mock data (`VITE_USE_MOCK=true`) for pitch presentations without a live API.
-- **PDF Reports**: SEBI-compliant 8-page case PDFs generate successfully (verified via `verify_argus.py` step 7).
+- **PDF Reports**: SEBI-compliant 8-page case PDFs generate successfully.
 - **Windows-Safe**: All Unicode/emoji print statements replaced with ASCII equivalents; `charmap` codec errors eliminated.
 
 ---
@@ -1328,8 +1365,8 @@ docker-compose down
 - [ ] Validate precision/recall on held-out confirmed SEBI cases
 
 ### Phase 4 — Dashboard & Reporting [OK] (Complete)
-- [x] Build Streamlit multi-page surveillance dashboard
-- [x] Build React/Vite high-performance terminal dashboard (5 pages, 11 components)
+- [x] Build Streamlit multi-page surveillance dashboard + Mitigation Center page
+- [x] Build React/Vite high-performance terminal dashboard (6 pages, 12 components)
 - [x] Implement D3.js network graph with force simulation
 - [x] Implement DNA radar chart and score gauges
 - [x] PDF generation end-to-end verified
@@ -1337,6 +1374,13 @@ docker-compose down
 - [x] Financial misinformation detection engine (models/misinfo/)
 - [x] Generic digital threat adapter (phishing, transaction logs, activity logs)
 - [x] Extended Alert schema (social_signal_score, misinfo_score, threat_type, ThreatTypeEnum)
+- [x] Real-Time Mitigation Engine (scoring/mitigation_engine.py)
+- [x] Mitigation DB columns (severity, recommended_action, mitigation_status, auto_mitigated, escalated_to_sebi)
+- [x] Mitigation API endpoints (mitigate / dismiss / escalate / summary / pending)
+- [x] React MitigationCenter page (pie chart, action breakdown, pending table, action buttons)
+- [x] Streamlit Mitigation Center page (metrics, bar chart, action buttons)
+- [x] Severity badge + mitigation actions in LiveAlerts expanded rows
+- [x] verify_argus.py 17/17 PASSED
 - [ ] Connect React live alerts to Redis pub/sub (currently polling)
 - [ ] Add SEBI email notification on critical alerts (score >= 9.0)
 

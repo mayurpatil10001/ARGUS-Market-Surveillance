@@ -93,10 +93,23 @@ class AlertOut(BaseModel):
     dna_score: float
     cross_market_score: float
     zero_day_score: float
+    social_signal_score: float = 0.0
+    misinfo_score: float = 0.0
+    threat_type: str = "market_manipulation"
     status: str
     case_file_path: Optional[str] = None
     assigned_to: Optional[str] = None
     created_at: Optional[datetime] = None
+    # ── Mitigation fields ────────────────────────────────
+    recommended_action: Optional[str] = None
+    mitigation_status: Optional[str] = "pending"
+    mitigation_applied_at: Optional[datetime] = None
+    mitigation_applied_by: Optional[str] = None
+    auto_mitigated: Optional[bool] = False
+    mitigation_notes: Optional[str] = None
+    severity: Optional[str] = "medium"
+    escalated_to_sebi: Optional[bool] = False
+    escalation_timestamp: Optional[datetime] = None
 
 
 class AlertStatusUpdate(BaseModel):
@@ -117,8 +130,39 @@ class AlertListParams(BaseModel):
     scrip: Optional[str] = None
     from_date: Optional[datetime] = None
     to_date: Optional[datetime] = None
+    severity: Optional[str] = None
+    mitigation_status: Optional[str] = None
     limit: int = Field(default=50, ge=1, le=500)
     offset: int = Field(default=0, ge=0)
+
+
+# ── Mitigation schemas ────────────────────────────────────────────────────
+
+class MitigationApplyRequest(BaseModel):
+    action: str = Field(..., min_length=1)
+    applied_by: str = Field(..., min_length=1, max_length=100)
+    notes: Optional[str] = None
+
+
+class MitigationDismissRequest(BaseModel):
+    dismissed_by: str = Field(..., min_length=1, max_length=100)
+    reason: str = Field(..., min_length=1)
+
+
+class MitigationEscalateRequest(BaseModel):
+    escalated_by: str = Field(..., min_length=1, max_length=100)
+
+
+class MitigationSummaryOut(BaseModel):
+    total_alerts: int
+    pending_mitigation: int
+    applied: int
+    dismissed: int
+    escalated: int
+    auto_mitigated: int
+    escalated_to_sebi: int
+    by_severity: dict
+    by_action: dict
 
 
 # ─── SEBI Case / Reports ──────────────────────────────────────────────────────

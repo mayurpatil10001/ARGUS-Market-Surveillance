@@ -143,6 +143,16 @@ class Alert(Base):
     case_file_path = Column(String, nullable=True)
     assigned_to = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # ── Mitigation fields ────────────────────────────────────────────────────
+    recommended_action = Column(String, nullable=True)
+    mitigation_status = Column(String, nullable=False, default="pending")
+    mitigation_applied_at = Column(DateTime(timezone=True), nullable=True)
+    mitigation_applied_by = Column(String, nullable=True)
+    auto_mitigated = Column(Boolean, default=False, nullable=False)
+    mitigation_notes = Column(String, nullable=True)
+    severity = Column(String, nullable=False, default="medium")
+    escalated_to_sebi = Column(Boolean, default=False, nullable=False)
+    escalation_timestamp = Column(DateTime(timezone=True), nullable=True)
     sebi_cases = relationship("SEBICase", back_populates="alert")
 
 

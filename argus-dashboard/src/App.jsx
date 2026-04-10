@@ -8,6 +8,7 @@ import AccountDNA from './pages/AccountDNA'
 import NetworkView from './pages/NetworkView'
 import CaseBuilder from './pages/CaseBuilder'
 import WeeklySummary from './pages/WeeklySummary'
+import MitigationCenter from './pages/MitigationCenter'
 
 const qc = new QueryClient({
   defaultOptions: { queries: { refetchInterval: 30000, retry: 1, refetchOnWindowFocus: false } },
@@ -29,6 +30,7 @@ export default function App() {
                 <Route path="/network" element={<NetworkView />} />
                 <Route path="/cases" element={<CaseBuilder />} />
                 <Route path="/summary" element={<WeeklySummary />} />
+                <Route path="/mitigation" element={<MitigationCenter />} />
               </Routes>
             </main>
           </div>

@@ -108,7 +108,7 @@ with st.sidebar:
 
     page = st.radio(
         "Go to page:",
-        ["🚨 Live Alerts", "🧬 Account DNA", "🕸️ Network Graph", "📁 Case Builder"],
+        ["🚨 Live Alerts", "🧬 Account DNA", "🕸️ Network Graph", "📁 Case Builder", "🛡️ Mitigation Center"],
         label_visibility="collapsed",
     )
 
@@ -132,4 +132,7 @@ elif page == "🕸️ Network Graph":
     render(API_BASE, token)
 elif page == "📁 Case Builder":
     from dashboard.pages.case_builder import render
+    render(API_BASE, token)
+elif page == "🛡️ Mitigation Center":
+    from dashboard.pages.mitigation_center import render
     render(API_BASE, token)

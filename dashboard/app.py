@@ -1,5 +1,6 @@
 """
-dashboard/app.py — ARGUS Streamlit multi-page dashboard main entry point.
+dashboard/app.py — SENTINEL Streamlit multi-page dashboard main entry point.
+SENTINEL: Scalable ENTity Intelligence for NEtwork-Level threat detection
 """
 import os
 import sys
@@ -14,8 +15,8 @@ import streamlit as st
 API_BASE = os.getenv("ARGUS_API_URL", "http://argus-api:8000")
 
 st.set_page_config(
-    page_title="ARGUS — Market Surveillance",
-    page_icon="🔭",
+    page_title="SENTINEL — Digital Threat Detection",
+    page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -24,22 +25,22 @@ st.set_page_config(
 st.markdown("""
 <style>
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0d1b2a 0%, #1a2b5f 100%);
+        background: linear-gradient(180deg, #0d1117 0%, #0f1f3d 100%);
     }
     [data-testid="stSidebar"] * {
         color: #e0e0e0 !important;
     }
-    .argus-logo {
-        font-size: 2.2rem;
+    .sentinel-logo {
+        font-size: 2.0rem;
         font-weight: 900;
-        color: #C8A951;
+        color: #00ff88;
         letter-spacing: 0.12em;
         text-align: center;
         padding: 1rem 0 0.3rem 0;
     }
-    .argus-tagline {
-        font-size: 0.75rem;
-        color: #a0a8c0;
+    .sentinel-tagline {
+        font-size: 0.72rem;
+        color: #8890a8;
         text-align: center;
         margin-bottom: 1.5rem;
     }
@@ -49,7 +50,7 @@ st.markdown("""
         background: #1a2b5f;
         border-radius: 12px;
         padding: 1.2rem;
-        border-left: 4px solid #C8A951;
+        border-left: 4px solid #00ff88;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -86,9 +87,9 @@ def _get_token():
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('<div class="argus-logo">🔭 ARGUS</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sentinel-logo">🛡️ SENTINEL</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="argus-tagline">Adaptive Regulatory Graph<br>for Unseen Surveillance</div>',
+        '<div class="sentinel-tagline">Scalable ENTity Intelligence for<br>NEtwork-Level Threat Detection</div>',
         unsafe_allow_html=True,
     )
     st.markdown("---")
@@ -108,30 +109,33 @@ with st.sidebar:
 
     page = st.radio(
         "Go to page:",
-        ["🚨 Live Alerts", "🧬 Account DNA", "🕸️ Network Graph", "📁 Case Builder", "🛡️ Mitigation Center"],
+        ["🚨 Live Threat Alerts", "🧬 Behavioral DNA", "🕸️ Threat Network", "📁 Threat Report Builder", "🔍 PS-402 Signals", "🛡️ Mitigation Center"],
         label_visibility="collapsed",
     )
 
     st.markdown("---")
     model_vers = health.get("model_versions", {})
     if model_vers:
-        st.caption("**Models:**")
+        st.caption("**AI Engines:**")
         for name, status in model_vers.items():
             icon = "✅" if status == "loaded" else "⚠️"
             st.caption(f"  {icon} {name}: {status}")
 
 # ── Page routing ──────────────────────────────────────────────────────────────
-if page == "🚨 Live Alerts":
+if page == "🚨 Live Threat Alerts":
     from dashboard.pages.live_alerts import render
     render(API_BASE, token)
-elif page == "🧬 Account DNA":
+elif page == "🧬 Behavioral DNA":
     from dashboard.pages.account_dna import render
     render(API_BASE, token)
-elif page == "🕸️ Network Graph":
+elif page == "🕸️ Threat Network":
     from dashboard.pages.network_graph import render
     render(API_BASE, token)
-elif page == "📁 Case Builder":
+elif page == "📁 Threat Report Builder":
     from dashboard.pages.case_builder import render
+    render(API_BASE, token)
+elif page == "🔍 PS-402 Signals":
+    from dashboard.pages.ps402_signals import render
     render(API_BASE, token)
 elif page == "🛡️ Mitigation Center":
     from dashboard.pages.mitigation_center import render

@@ -53,8 +53,8 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
         leftMargin=2 * cm,
         topMargin=2.5 * cm,
         bottomMargin=2.5 * cm,
-        title=f"ARGUS Case {case.case_number}",
-        author="ARGUS Surveillance System",
+        title=f"SENTINEL Threat Report {case.case_number}",
+        author="SENTINEL Digital Threat Detection System",
     )
 
     styles = getSampleStyleSheet()
@@ -109,7 +109,7 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
         style_title,
     ))
     story.append(Paragraph(
-        "ARGUS Automated Surveillance Alert",
+        "SENTINEL Automated Threat Report",
         ParagraphStyle("sub2", parent=style_sub, fontSize=11, textColor=SEBI_GOLD, fontName="Helvetica-Bold"),
     ))
     story.append(Spacer(1, 0.3 * cm))
@@ -148,25 +148,27 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
         else "goldenrod"
     )
     story.append(Paragraph(
-        f"ARGUS has detected a <b>potential market manipulation incident</b> with an "
+        f"SENTINEL has detected a <b>potential digital threat incident</b> with an "
         f"impossibility score of <font color='{impossibility_color}'>"
         f"<b>{alert.impossibility_score:.2f} / 10.00</b></font>. "
-        f"The system flagged the scrip <b>{alert.scrip}</b> on exchange <b>{alert.exchange}</b> "
+        f"The system flagged entity <b>{alert.scrip}</b> on platform "
+        f"<b>{getattr(alert, 'platform', None) or alert.exchange}</b> "
         f"during the period <b>{case.from_date}</b> to <b>{case.to_date}</b>.",
         style_body,
     ))
+    threat_cat = getattr(alert, 'threat_category', None) or getattr(alert, 'scheme_type', 'novel_threat')
     story.append(Paragraph(
-        f"Scheme Type Detected: <b>{alert.scheme_type.upper().replace('_', ' ')}</b>",
+        f"Threat Category Detected: <b>{threat_cat.upper().replace('_', ' ')}</b>",
         style_bold,
     ))
     story.append(Spacer(1, 0.3 * cm))
 
     score_data = [
         ["Detection Engine", "Score", "Weight", "Contribution"],
-        ["Temporal Coincidence Network (GNN)", f"{alert.gnn_score:.2f}/10", "35%", f"{alert.gnn_score * 0.35:.2f}"],
-        ["Zero-Day Anomaly Ensemble", f"{alert.zero_day_score:.2f}/10", "25%", f"{alert.zero_day_score * 0.25:.2f}"],
-        ["Behavioral DNA Autoencoder", f"{alert.dna_score:.2f}/10", "25%", f"{alert.dna_score * 0.25:.2f}"],
-        ["Cross-Market Phantom Detector", f"{alert.cross_market_score:.2f}/10", "15%", f"{alert.cross_market_score * 0.15:.2f}"],
+        ["Network Coordination Detector (GNN/TCN)", f"{alert.gnn_score:.2f}/10", "35%", f"{alert.gnn_score * 0.35:.2f}"],
+        ["Novel Threat Detector (Zero-Day)", f"{alert.zero_day_score:.2f}/10", "25%", f"{alert.zero_day_score * 0.25:.2f}"],
+        ["Behavioral Anomaly Profiler (DNA-AE)", f"{alert.dna_score:.2f}/10", "25%", f"{alert.dna_score * 0.25:.2f}"],
+        ["Cross-Platform Threat Correlator", f"{alert.cross_market_score:.2f}/10", "15%", f"{alert.cross_market_score * 0.15:.2f}"],
         ["COMPOSITE IMPOSSIBILITY SCORE", f"{alert.impossibility_score:.2f}/10", "100%", "—"],
     ]
     score_table = Table(score_data, colWidths=[8.5 * cm, 2.5 * cm, 2 * cm, 2.5 * cm])
@@ -191,13 +193,13 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
     story.append(HRFlowable(width="100%", thickness=1, color=SEBI_GOLD))
     story.append(Spacer(1, 0.2 * cm))
 
-    accounts = alert.accounts_involved or []
-    entity_data = [["#", "Account ID (Anonymized)", "Entity Name", "Status"]]
-    for i, acc in enumerate(accounts[:20], 1):
+    entities = getattr(alert, 'entities_involved', None) or getattr(alert, 'accounts_involved', []) or []
+    entity_data = [["#", "Entity ID (Anonymized)", "Entity Name", "Status"]]
+    for i, ent in enumerate(entities[:20], 1):
         entity_name = case.entity_names[i - 1] if i <= len(case.entity_names) else "Under Investigation"
-        entity_data.append([str(i), acc[:16], entity_name, "Flagged"])
-    if len(accounts) > 20:
-        entity_data.append(["...", f"+{len(accounts) - 20} more accounts", "", ""])
+        entity_data.append([str(i), ent[:16], entity_name, "Flagged"])
+    if len(entities) > 20:
+        entity_data.append(["...", f"+{len(entities) - 20} more entities", "", ""])
 
     entity_table = Table(entity_data, colWidths=[1 * cm, 5 * cm, 6.5 * cm, 3 * cm])
     entity_table.setStyle(TableStyle([
@@ -220,33 +222,33 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
     story.append(Spacer(1, 0.2 * cm))
 
     evidence = case.evidence_json or {}
-    story.append(Paragraph("<b>3.1 GNN Coordination Evidence</b>", style_bold))
+    story.append(Paragraph("<b>3.1 Network Coordination Evidence</b>", style_bold))
     story.append(Paragraph(
-        f"The Temporal Coincidence Network identified coordinated trading behaviour among "
-        f"{len(accounts)} accounts in {alert.scrip}. The GNN model detected temporal coincidences "
-        f"(trades within 50ms of each other) at a frequency inconsistent with independent random trading. "
-        f"GNN Score: {alert.gnn_score:.2f}/10.",
+        f"The Network Coordination Detector identified coordinated activity among "
+        f"{len(entities)} entities targeting {alert.scrip}. The GNN/TCN model detected "
+        f"co-temporal actions (within 50ms of each other) at a frequency inconsistent with "
+        f"independent organic behavior. Coordination Score: {alert.gnn_score:.2f}/10.",
         style_body,
     ))
-    story.append(Paragraph("<b>3.2 Behavioral DNA Evidence</b>", style_bold))
+    story.append(Paragraph("<b>3.2 Behavioral Anomaly Evidence</b>", style_bold))
     story.append(Paragraph(
-        f"The Behavioral DNA Autoencoder identified account fingerprints with high cosine similarity "
-        f"to known fraudsters in the SEBI enforcement database. "
-        f"DNA Match Score: {alert.dna_score:.2f}/10.",
+        f"The Behavioral Anomaly Profiler identified entity fingerprints with high similarity "
+        f"to known threat actors in the SENTINEL enforcement database. "
+        f"Behavior Score: {alert.dna_score:.2f}/10.",
         style_body,
     ))
-    story.append(Paragraph("<b>3.3 Cross-Market Evidence</b>", style_bold))
+    story.append(Paragraph("<b>3.3 Cross-Platform Evidence</b>", style_bold))
     story.append(Paragraph(
-        f"Cross-market analysis of NSE/BSE/NFO/MCX segments detected phantom positions and "
-        f"circular trade flows involving {alert.scrip}. "
-        f"Cross-Market Score: {alert.cross_market_score:.2f}/10.",
+        f"Cross-platform analysis of Twitter/Reddit/Telegram/Web signals detected coordinated "
+        f"threat activity targeting {alert.scrip}. "
+        f"Cross-Platform Score: {alert.cross_market_score:.2f}/10.",
         style_body,
     ))
-    story.append(Paragraph("<b>3.4 Zero-Day Anomaly Evidence</b>", style_bold))
+    story.append(Paragraph("<b>3.4 Novel Threat Evidence</b>", style_bold))
     story.append(Paragraph(
-        f"The anomaly ensemble (IForest + LOF + HBOS + OCSVM) flagged statistical features "
-        f"of the trading session as highly anomalous relative to the normal order-flow baseline. "
-        f"Zero-Day Score: {alert.zero_day_score:.2f}/10.",
+        f"The Novel Threat Detector (IForest + LOF + HBOS) flagged behavioral features "
+        f"as highly anomalous relative to the normal platform activity baseline. "
+        f"Novelty Score: {alert.zero_day_score:.2f}/10.",
         style_body,
     ))
     story.append(Spacer(1, 0.3 * cm))
@@ -256,7 +258,7 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
     story.append(HRFlowable(width="100%", thickness=1, color=SEBI_GOLD))
     story.append(Spacer(1, 0.2 * cm))
     story.append(Paragraph(
-        "<b>Scoring Formula:</b> Overall = 0.35 × GNN + 0.25 × ZeroDay + 0.25 × DNA + 0.15 × CrossMarket",
+        "<b>Scoring Formula:</b> Overall = 0.35 × Coordination + 0.25 × Novelty + 0.25 × Behavior + 0.15 × Cross-Platform",
         style_body,
     ))
     story.append(Paragraph(
@@ -296,12 +298,12 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
     story.append(Spacer(1, 0.2 * cm))
 
     recommendations = [
-        "1. Freeze trading accounts of all identified entities pending investigation.",
-        "2. Issue Show Cause Notice (SCN) to all flagged account holders.",
-        "3. Subpoena broker records and order logs for the detection window.",
-        "4. Coordinate with MCA/ROC for corporate structure verification.",
-        "5. Cross-reference with PMLA/FIU databases for suspicious transaction reports.",
-        "6. Refer to SEBI Enforcement Division for formal adjudication.",
+        "1. Suspend/block flagged entity accounts pending investigation.",
+        "2. Issue takedown requests for malicious content and phishing domains.",
+        "3. Alert affected platform operators and users.",
+        "4. Coordinate with law enforcement for evidence preservation.",
+        "5. Cross-reference entities with known threat actor databases.",
+        "6. Refer to regulatory enforcement division for formal adjudication.",
     ]
     for rec in recommendations:
         story.append(Paragraph(rec, style_body))
@@ -311,7 +313,7 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
     story.append(HRFlowable(width="100%", thickness=1, color=colors.lightgrey))
     story.append(Spacer(1, 0.2 * cm))
     story.append(Paragraph(
-        f"Generated by ARGUS v1.0 — Adaptive Regulatory Graph for Unseen Surveillance | "
+        f"Generated by SENTINEL v2.0 — PS-402 Digital Threat Detection | "
         f"For Official Use Only | {datetime.utcnow().strftime('%d %b %Y %H:%M UTC')}",
         ParagraphStyle("footer", parent=style_normal, fontSize=7, textColor=colors.grey, alignment=TA_CENTER),
     ))

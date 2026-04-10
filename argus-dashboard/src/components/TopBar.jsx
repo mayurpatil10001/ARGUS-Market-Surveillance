@@ -82,7 +82,7 @@ export default function TopBar() {
           color: marketOpen ? 'var(--accent-green)' : 'var(--text-dim)',
           letterSpacing: 1.5,
         }}>
-          {marketOpen ? 'ARGUS LIVE' : 'MARKET CLOSED'}
+          {marketOpen ? 'SENTINEL LIVE' : 'MONITORING PAUSED'}
         </span>
       </div>
 
@@ -93,7 +93,7 @@ export default function TopBar() {
         color: 'var(--text-secondary)',
         flex: 1,
       }}>
-        <span style={{ color: 'var(--text-dim)' }}>ARGUS</span>
+        <span style={{ color: 'var(--text-dim)' }}>SENTINEL</span>
         <span style={{ margin: '0 5px', color: 'var(--border-bright)' }}>/</span>
         <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
           {pageLabel.toUpperCase()}
@@ -147,7 +147,7 @@ export default function TopBar() {
         paddingLeft: 14,
         borderLeft: '1px solid var(--border)',
       }}>
-        SEBI ANALYST
+        THREAT ANALYST
       </div>
     </header>
   )

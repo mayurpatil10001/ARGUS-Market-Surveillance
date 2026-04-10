@@ -1,6 +1,7 @@
 """
-api/main.py — ARGUS FastAPI application entrypoint.
+api/main.py — SENTINEL FastAPI application entrypoint.
 JWT authentication, CORS, lifespan model loading, health endpoint.
+SENTINEL: Scalable ENTity Intelligence for NEtwork-Level threat detection
 """
 from __future__ import annotations
 
@@ -56,34 +57,34 @@ _app_state: dict = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load all AI models on startup; release on shutdown."""
-    logger.info("ARGUS startup: creating DB tables...")
+    logger.info("SENTINEL startup: creating DB tables...")
     Base.metadata.create_all(bind=engine)
 
-    logger.info("Loading TCN model...")
+    logger.info("Loading Network Coordination Detector (TCN/GNN)...")
     try:
         from models.gnn.train_tcn import load_model
         _app_state["tcn"] = load_model()
     except Exception as exc:
-        logger.warning(f"TCN load failed: {exc}")
+        logger.warning(f"Network Coordination Detector load failed: {exc}")
         _app_state["tcn"] = None
 
-    logger.info("Loading DNA autoencoder...")
+    logger.info("Loading Behavioral Anomaly Profiler (DNA Autoencoder)...")
     try:
         from models.dna.autoencoder import get_autoencoder
         _app_state["autoencoder"] = get_autoencoder()
     except Exception as exc:
-        logger.warning(f"Autoencoder load failed: {exc}")
+        logger.warning(f"Behavioral Anomaly Profiler load failed: {exc}")
         _app_state["autoencoder"] = None
 
-    logger.info("Loading Zero-Day detector...")
+    logger.info("Loading Novel Threat Detector (Zero-Day)...")
     try:
         from models.zero_day.anomaly import get_detector
         _app_state["zero_day"] = get_detector()
     except Exception as exc:
-        logger.warning(f"Zero-day load failed: {exc}")
+        logger.warning(f"Novel Threat Detector load failed: {exc}")
         _app_state["zero_day"] = None
 
-    logger.info("Loading Fingerprint store...")
+    logger.info("Loading Behavioral Fingerprint store...")
     try:
         from models.dna.fingerprint_store import FingerprintStore
         fp_store = FingerprintStore()
@@ -103,19 +104,19 @@ async def lifespan(app: FastAPI):
         logger.warning(f"MitigationEngine load failed: {exc}")
         _app_state["mitigation_engine"] = None
 
-    logger.info("Loading Misinfo detector...")
+    logger.info("Loading Malicious Content Classifier (Misinfo detector)...")
     try:
         from models.misinfo.detector import _get_pipeline
         _get_pipeline()
         _app_state["misinfo_model"] = "loaded"
     except Exception as exc:
-        logger.warning(f"Misinfo model load failed: {exc}")
+        logger.warning(f"Malicious Content Classifier load failed: {exc}")
         _app_state["misinfo_model"] = None
 
-    logger.info("ARGUS startup complete.")
+    logger.info("SENTINEL startup complete. All 6 AI engines initialized.")
     yield
 
-    logger.info("ARGUS shutting down...")
+    logger.info("SENTINEL shutting down...")
     if _app_state.get("fp_store"):
         try:
             _app_state["fp_store"].close()
@@ -124,9 +125,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="ARGUS — Market Surveillance API",
-    description="Adaptive Regulatory Graph for Unseen Surveillance — SEBI, NSE, BSE manipulation detection.",
-    version="1.0.0",
+    title="SENTINEL — Digital Threat Detection API",
+    description=(
+        "Scalable ENTity Intelligence for NEtwork-Level threat detection. "
+        "Detects coordinated bot attacks, malicious content, phishing campaigns, "
+        "and platform abuse across Twitter, Reddit, Telegram, and the web. "
+        "Built for PS-402: Detection of Digital Threats & Malicious Content."
+    ),
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -149,6 +155,9 @@ app.add_middleware(
 app.include_router(alerts_router.router, prefix="/alerts", tags=["Alerts"])
 app.include_router(accounts_router.router, prefix="/accounts", tags=["Accounts"])
 app.include_router(reports_router.router, prefix="/reports", tags=["Reports"])
+
+from api.routers import ps402 as ps402_router  # noqa: E402
+app.include_router(ps402_router.router, prefix="/ps402", tags=["PS-402 Digital Threats"])
 
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -182,7 +191,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 @app.get("/health", response_model=HealthOut, tags=["System"])
 async def health_check(db: Session = Depends(get_db)):
-    """Returns service health status and loaded model versions."""
+    """Returns SENTINEL service health status and loaded AI engine versions."""
     services: dict = {}
 
     # DB check
@@ -196,7 +205,6 @@ async def health_check(db: Session = Depends(get_db)):
     # Redis check — optional; not_configured is acceptable for local dev
     redis_url = os.getenv("REDIS_URL", "")
     if not redis_url or redis_url in ("redis://redis:6379", "redis://localhost:6379"):
-        # Try a quick connection; if it fails, mark as not_configured (not error)
         try:
             import redis as redis_lib
             r = redis_lib.from_url(redis_url or "redis://localhost:6379", socket_connect_timeout=1)
@@ -216,17 +224,19 @@ async def health_check(db: Session = Depends(get_db)):
             services["redis"] = "error"
 
     model_versions = {
-        "tcn": "loaded" if _app_state.get("tcn") else "not_loaded",
-        "autoencoder": "loaded" if _app_state.get("autoencoder") else "not_loaded",
-        "zero_day": "loaded" if _app_state.get("zero_day") else "not_loaded",
-        "fingerprint_store": "loaded" if _app_state.get("fp_store") else "not_loaded",
+        "network_coordination_detector": "loaded" if _app_state.get("tcn") else "not_loaded",
+        "behavioral_anomaly_profiler": "loaded" if _app_state.get("autoencoder") else "not_loaded",
+        "novel_threat_detector": "loaded" if _app_state.get("zero_day") else "not_loaded",
+        "behavioral_fingerprint_store": "loaded" if _app_state.get("fp_store") else "not_loaded",
         "mitigation_engine": "loaded" if _app_state.get("mitigation_engine") else "not_loaded",
-        "misinfo_model": _app_state.get("misinfo_model") or "not_loaded",
+        "malicious_content_classifier": _app_state.get("misinfo_model") or "not_loaded",
     }
 
     overall_status = "ok" if services.get("db") == "ok" else "degraded"
     return HealthOut(
         status=overall_status,
+        system="SENTINEL",
+        version="2.0.0",
         services=services,
         model_versions=model_versions,
     )

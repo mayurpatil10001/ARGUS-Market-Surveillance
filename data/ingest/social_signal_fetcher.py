@@ -119,7 +119,7 @@ def _fetch_reddit_posts(
     if after:
         params["after"] = after
 
-    headers = {"User-Agent": "ARGUS-SocialSignal/1.0 (market surveillance research)"}
+    headers = {"User-Agent": "SENTINEL-SocialSignal/2.0 (digital threat detection research)"}
     try:
         resp = requests.get(url, params=params, headers=headers, timeout=10)
         resp.raise_for_status()

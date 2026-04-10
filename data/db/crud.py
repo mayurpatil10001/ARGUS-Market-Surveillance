@@ -1,5 +1,6 @@
 """
-data/db/crud.py — CRUD operations for all ARGUS models.
+data/db/crud.py — CRUD operations for all SENTINEL models.
+SENTINEL: Scalable ENTity Intelligence for NEtwork-Level threat detection
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from sqlalchemy import and_, desc, func
 
 from data.db.models import (
     Trade, Account, Entity, Alert, SEBICase, KnownFraudster,
-    AlertStatusEnum, ThreatTypeEnum,
+    AlertStatusEnum, ThreatTypeEnum, MarketSignal,
 )
 
 
@@ -121,6 +122,17 @@ def search_accounts(
 # ─── Alert ────────────────────────────────────────────────────────────────────
 
 def create_alert(session: Session, **kwargs) -> Alert:
+    # Sync PS-402 fields with legacy aliases
+    if "threat_category" in kwargs and "scheme_type" not in kwargs:
+        kwargs["scheme_type"] = kwargs["threat_category"]
+    if "scheme_type" in kwargs and "threat_category" not in kwargs:
+        kwargs["threat_category"] = kwargs["scheme_type"]
+    if "platform" in kwargs and "exchange" not in kwargs:
+        kwargs["exchange"] = kwargs["platform"]
+    if "entities_involved" in kwargs and "accounts_involved" not in kwargs:
+        kwargs["accounts_involved"] = kwargs["entities_involved"]
+    if "accounts_involved" in kwargs and "entities_involved" not in kwargs:
+        kwargs["entities_involved"] = kwargs["accounts_involved"]
     alert = Alert(**kwargs)
     if "id" not in kwargs or kwargs["id"] is None:
         alert.id = uuid.uuid4()
@@ -139,6 +151,8 @@ def get_alerts(
     status: Optional[str] = None,
     min_score: Optional[float] = None,
     scrip: Optional[str] = None,
+    platform: Optional[str] = None,
+    threat_category: Optional[str] = None,
     from_dt: Optional[datetime] = None,
     to_dt: Optional[datetime] = None,
     threat_type: Optional[str] = None,
@@ -154,6 +168,10 @@ def get_alerts(
         q = q.filter(Alert.impossibility_score >= min_score)
     if scrip:
         q = q.filter(Alert.scrip == scrip)
+    if platform:
+        q = q.filter(Alert.platform == platform)
+    if threat_category:
+        q = q.filter(Alert.threat_category == threat_category)
     if from_dt:
         q = q.filter(Alert.detected_at >= from_dt)
     if to_dt:
@@ -253,6 +271,10 @@ def get_mitigation_stats(session: Session) -> dict:
 
 
 def get_weekly_stats(session: Session) -> dict:
+    """
+    Returns PS-402 weekly threat statistics:
+    total_threats, by_category breakdown, top_platforms, mitigation_rate.
+    """
     from datetime import timedelta
     week_ago = datetime.utcnow() - timedelta(days=7)
     total = session.query(func.count(Alert.id)).filter(Alert.created_at >= week_ago).scalar() or 0
@@ -269,6 +291,55 @@ def get_weekly_stats(session: Session) -> dict:
         or 0
     )
     fp_rate = round(fp / max(total, 1) * 100, 2)
+
+    # PS-402: by_category breakdown
+    category_rows = (
+        session.query(Alert.threat_category, func.count(Alert.id).label("cnt"))
+        .filter(Alert.created_at >= week_ago)
+        .group_by(Alert.threat_category)
+        .all()
+    )
+    # Fallback to scheme_type if threat_category column not yet populated
+    if not category_rows:
+        category_rows = (
+            session.query(Alert.scheme_type, func.count(Alert.id).label("cnt"))
+            .filter(Alert.created_at >= week_ago)
+            .group_by(Alert.scheme_type)
+            .all()
+        )
+    by_category = {row[0]: row[1] for row in category_rows if row[0]}
+
+    # PS-402: top_platforms
+    platform_rows = (
+        session.query(Alert.platform, func.count(Alert.id).label("cnt"))
+        .filter(Alert.created_at >= week_ago)
+        .group_by(Alert.platform)
+        .order_by(desc("cnt"))
+        .limit(5)
+        .all()
+    )
+    # Fallback to exchange if platform column not yet populated
+    if not platform_rows:
+        platform_rows = (
+            session.query(Alert.exchange, func.count(Alert.id).label("cnt"))
+            .filter(Alert.created_at >= week_ago)
+            .group_by(Alert.exchange)
+            .order_by(desc("cnt"))
+            .limit(5)
+            .all()
+        )
+    top_platforms = [{"platform": row[0], "count": row[1]} for row in platform_rows if row[0]]
+
+    # PS-402: mitigation_rate
+    mitigated = (
+        session.query(func.count(Alert.id))
+        .filter(Alert.created_at >= week_ago, Alert.mitigation_status == "applied")
+        .scalar()
+        or 0
+    )
+    mitigation_rate = round(mitigated / max(total, 1) * 100, 2)
+
+    # Legacy top_scrips for backward compatibility
     top_scrips_rows = (
         session.query(Alert.scrip, func.count(Alert.id).label("cnt"))
         .filter(Alert.created_at >= week_ago)
@@ -277,11 +348,16 @@ def get_weekly_stats(session: Session) -> dict:
         .limit(5)
         .all()
     )
+
     return {
         "total_alerts": total,
+        "total_threats": total,
         "resolved": resolved,
         "false_positives": fp,
         "false_positive_rate_pct": fp_rate,
+        "by_category": by_category,
+        "top_platforms": top_platforms,
+        "mitigation_rate": mitigation_rate,
         "top_flagged_scrips": [{"scrip": r[0], "count": r[1]} for r in top_scrips_rows],
     }
 
@@ -332,3 +408,67 @@ def upsert_known_fraudster(session: Session, **kwargs) -> KnownFraudster:
 
 def get_all_known_fraudsters(session: Session) -> list[KnownFraudster]:
     return session.query(KnownFraudster).all()
+
+
+# ─── MarketSignal (PS-402) ────────────────────────────────────────────────────
+
+def create_market_signal(
+    db,
+    *,
+    signal_type: str,
+    platform: str,
+    scrips_mentioned: list,
+    source_url: Optional[str] = None,
+    raw_text: Optional[str] = None,
+    entity_id: Optional[str] = None,
+    misinfo_score: float = 0.0,
+    social_signal_score: float = 0.0,
+    threat_score: float = 0.0,
+    source_meta: Optional[dict] = None,
+) -> MarketSignal:
+    is_market_moving = threat_score >= 0.6
+    obj = MarketSignal(
+        id=str(uuid.uuid4()),
+        signal_type=signal_type,
+        platform=platform,
+        source_url=source_url,
+        raw_text=raw_text,
+        scrips_mentioned=scrips_mentioned or [],
+        entity_id=entity_id,
+        misinfo_score=misinfo_score,
+        social_signal_score=social_signal_score,
+        threat_score=threat_score,
+        is_market_moving=is_market_moving,
+        source_meta=source_meta or {},
+    )
+    db.add(obj)
+    db.commit()
+    db.refresh(obj)
+    return obj
+
+
+def get_market_signals(
+    db,
+    *,
+    scrip: Optional[str] = None,
+    platform: Optional[str] = None,
+    is_market_moving: Optional[bool] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[MarketSignal]:
+    q = db.query(MarketSignal)
+    if scrip:
+        q = q.filter(MarketSignal.scrips_mentioned.contains([scrip]))
+    if platform:
+        q = q.filter(MarketSignal.platform == platform)
+    if is_market_moving is not None:
+        q = q.filter(MarketSignal.is_market_moving == is_market_moving)
+    return q.order_by(MarketSignal.ingested_at.desc()).offset(offset).limit(limit).all()
+
+
+def link_signal_to_alert(db, signal_id: str, alert_id: str) -> None:
+    obj = db.query(MarketSignal).filter(MarketSignal.id == signal_id).first()
+    if obj:
+        obj.alert_id = alert_id
+        db.commit()
+

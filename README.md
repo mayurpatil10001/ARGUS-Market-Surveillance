@@ -8,7 +8,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.3.0-orange)](https://pytorch.org)
 [![torch-geometric](https://img.shields.io/badge/torch--geometric-2.7.0-red)](https://pyg.org)
 [![License](https://img.shields.io/badge/License-Proprietary-red)](#)
-[![Status](https://img.shields.io/badge/Status-17%2F17%20Verified-brightgreen)](#current-status)
+[![Status](https://img.shields.io/badge/Status-20%2F20%20Verified-brightgreen)](#current-status)
 
 ---
 
@@ -32,13 +32,14 @@
    - [Tests (`tests/`)](#tests-tests)
    - [Demo (`demo/`)](#demo-demo)
 7. [Database Schema](#database-schema)
-8. [Data Sources](#data-sources)
-9. [API Reference](#api-reference)
-10. [Quick Start — Local Dev](#quick-start--local-dev)
-11. [Docker Deployment](#docker-deployment)
-12. [Current Status](#current-status)
-13. [Known Limitations](#known-limitations)
-14. [Roadmap](#roadmap)
+8. [PS-402 Ingestion API](#ps-402-ingestion-api)
+9. [Data Sources](#data-sources)
+10. [API Reference](#api-reference)
+11. [Quick Start — Local Dev](#quick-start--local-dev)
+12. [Docker Deployment](#docker-deployment)
+13. [Current Status](#current-status)
+14. [Known Limitations](#known-limitations)
+15. [Roadmap](#roadmap)
 
 ---
 
@@ -250,38 +251,59 @@ argus/
 │   │   ├── sebi_scraper.py
 │   │   ├── mca_fetcher.py
 │   │   ├── broker_feed.py
-│   │   ├── social_signal_fetcher.py   # NEW — social media threat signals
-│   │   └── generic_threat_adapter.py  # NEW — universal threat normalizer
+│   │   ├── social_signal_fetcher.py   # Social media threat signals
+│   │   ├── generic_threat_adapter.py  # Universal threat normalizer
+│   │   └── url_social_ingestor.py     # ✅ NEW — PS-402 URL & social post ingestion
 │   └── pipeline/           # Kafka stream processing & data cleaning
 ├── scoring/                # Alert engine, scoring logic & mitigation
-│   ├── alert_engine.py     # Orchestrates all 5 detection engines + social signal fetch
+│   ├── alert_engine.py     # Orchestrates all detection engines + social signal fetch
 │   └── mitigation_engine.py # Severity classification + recommended actions + auto-mitigation
 ├── dashboard/              # Streamlit multi-page surveillance dashboard
 │   ├── app.py              # Main entry point (Port 8501)
-│   └── pages/              # Live Alerts, Account DNA, Network Graph, Case Builder, Mitigation Center
+│   └── pages/              # 6 pages
 │       ├── live_alerts.py
 │       ├── account_dna.py
 │       ├── network_graph.py
 │       ├── case_builder.py
-│       └── mitigation_center.py  # ✅ NEW — real-time mitigation triage
+│       ├── mitigation_center.py
+│       └── ps402_signals.py           # ✅ NEW — PS-402 digital threat signal page
 ├── argus-dashboard/        # React/Vite military-grade terminal dashboard
 │   └── src/
-│       ├── pages/          # LiveAlerts, AccountDNA, NetworkView, CaseBuilder, WeeklySummary, MitigationCenter
-│       │   └── MitigationCenter.jsx  # ✅ NEW — donut chart + action table + triage controls
+│       ├── pages/          # 7 pages
+│       │   ├── LiveAlerts.jsx
+│       │   ├── AccountDNA.jsx
+│       │   ├── NetworkView.jsx
+│       │   ├── CaseBuilder.jsx
+│       │   ├── WeeklySummary.jsx
+│       │   ├── MitigationCenter.jsx
+│       │   └── PS402Signals.jsx       # ✅ NEW — PS-402 digital threats page
 │       ├── components/     # 12 reusable UI components
 │       └── api/            # Axios client + mock data layer
+├── api/
+│   ├── main.py
+│   ├── auth.py
+│   ├── schemas.py
+│   └── routers/
+│       ├── alerts.py
+│       ├── accounts.py
+│       ├── reports.py
+│       └── ps402.py                   # ✅ NEW — PS-402 unified API router
 ├── reports/                # SEBI-compliant PDF case generator
 ├── alembic/                # Database migration scripts
+│   └── versions/
+│       ├── 001_initial.py
+│       └── 002_market_signals.py      # ✅ NEW — market_signals table migration
 ├── tests/                  # Pytest test suite (4 test modules)
 ├── demo/                   # Demo scenarios & synthetic fraud data
 │   ├── real_cases/         # 4 real-case detection scenarios
 │   │   ├── case_pump_dump.py
 │   │   ├── case_circular_trading.py
 │   │   ├── case_spoofing.py
-│   │   └── case_social_manipulation.py  # ✅ NEW — Reddit/Twitter pump + phishing
+│   │   └── case_social_manipulation.py
 │   ├── run_demo.py
-│   └── synthetic_fraud.py
-├── verify_argus.py         # 17-step full system verification suite
+│   ├── synthetic_fraud.py
+│   └── ps402_demo.py                  # ✅ NEW — PS-402 standalone 5-scenario demo
+├── verify_argus.py         # 20-step full system verification suite
 ├── .env                    # Environment variables (local dev)
 ├── .env.example            # Environment variable template
 ├── docker-compose.yml      # Full stack Docker orchestration
@@ -386,7 +408,7 @@ All services share `argus-net` bridge network. PostgreSQL data is persisted via 
 **Role:** SQLite database created automatically when running locally without PostgreSQL. Acts as a full local development database. In production, replaced by PostgreSQL. Created and managed by `data/db/session.py`.
 
 ### `verify_argus.py`
-**Role:** 17-step full system verification suite. Run from project root to confirm every component is working correctly — covers DB init, trained model weights, scoring engine, PDF generation, FastAPI app, AlertEngine, Mitigation Engine, social signal fetcher, misinfo detector, generic threat adapter, and the pump-and-dump real-case detection.
+**Role:** 20-step full system verification suite. Run from project root to confirm every component is working correctly — covers DB init, trained model weights, scoring engine, PDF generation, FastAPI app, AlertEngine, Mitigation Engine, social signal fetcher, misinfo detector, generic threat adapter, the pump-and-dump real-case detection, and the new PS-402 URL/social ingestion layer.
 
 ```bash
 python verify_argus.py
@@ -414,10 +436,13 @@ ARGUS FULL VERIFICATION SUITE
   [PASS] Social signal fetcher — pump text scoring
   [PASS] Misinfo detector — load weights + inference
   [PASS] Generic threat adapter — normalize() + normalize_batch()
+  [PASS] ingest_url — phishing URL → signal_id + threat_score > 0
+  [PASS] ingest_social_post — pump text → signal_id + RELIANCE in scrips
+  [PASS] ps402 router registered — /ps402 prefix present on app
 
-Results: 17 PASSED  |  0 FAILED
+Results: 20 PASSED  |  0 FAILED
 ========================================================
-ARGUS is fully operational. 17/17 verified.
+ARGUS is fully operational. 20/20 verified.
 ```
 
 ---
@@ -642,6 +667,7 @@ models = {
 | `alerts` | `Alert` | Generated manipulation alerts with AI scores |
 | `sebi_cases` | `SEBICase` | Formal SEBI case files linked to alerts |
 | `known_fraudsters` | `KnownFraudster` | Database of confirmed fraudster DNA fingerprints |
+| `market_signals` | `MarketSignal` | ✅ NEW — URL/social post signals with threat/misinfo scoring (PS-402) |
 
 **Enums defined:**
 - `ExchangeEnum`: NSE, BSE, NFO, MCX
@@ -888,6 +914,8 @@ Built with **React 18, Vite, Tailwind CSS, D3.js, Recharts, and Framer Motion** 
 | `/network` | NetworkView |
 | `/cases` | CaseBuilder |
 | `/summary` | WeeklySummary |
+| `/ps402` | PS402Signals ✅ NEW |
+| `/mitigation` | MitigationCenter |
 
 ### Pages (`src/pages/`)
 
@@ -1087,28 +1115,32 @@ accounts
 alerts
 ├── id (UUID PK)
 ├── scrip (String)
+├── platform (String, default='web')
 ├── exchange (String)
 ├── detected_at (DateTime)
 ├── impossibility_score (Float)
-├── scheme_type (String)
-├── accounts_involved (Array[String] / JSON)
+├── threat_category (String, default='novel_threat')   # PS-402 primary classification
+├── scheme_type (String)                               # legacy alias for threat_category
+├── entities_involved (Array[String] / JSON)           # PS-402 broader context
+├── accounts_involved (Array[String] / JSON)           # legacy alias
 ├── gnn_score (Float)
 ├── dna_score (Float)
 ├── cross_market_score (Float)
 ├── zero_day_score (Float)
-├── social_signal_score (Float, default=0.0)   # social media threat level
-├── misinfo_score (Float, default=0.0)          # misinformation probability
-├── threat_type (String, default='market_manipulation')  # ThreatTypeEnum
+├── social_signal_score (Float, default=0.0)
+├── misinfo_score (Float, default=0.0)
+├── threat_type (String, default='generic_digital_threat')
 ├── status (Enum: open/investigating/closed/false_positive)
 ├── case_file_path (String)
 ├── assigned_to (String)
-├── recommended_action (String, nullable)        # mitigation action key
-├── mitigation_status (String, default='pending') # pending/applied/dismissed/escalated
+├── content_sample (Text, nullable)
+├── recommended_action (String, nullable)
+├── mitigation_status (String, default='pending')
 ├── mitigation_applied_at (DateTime, nullable)
 ├── mitigation_applied_by (String, nullable)
 ├── auto_mitigated (Boolean, default=False)
-├── mitigation_notes (String, nullable)          # rationale from MitigationEngine
-├── severity (String, default='medium')          # low/medium/high/critical
+├── mitigation_notes (String, nullable)
+├── severity (String, default='medium')
 ├── escalated_to_sebi (Boolean, default=False)
 ├── escalation_timestamp (DateTime, nullable)
 └── created_at (DateTime)
@@ -1116,7 +1148,7 @@ alerts
 sebi_cases
 ├── id (UUID PK)
 ├── alert_id (UUID FK→alerts)
-├── case_number (String, unique)   # Format: ARGUS/YYYY/XXXXXXXX
+├── case_number (String, unique)
 ├── entity_names (Array[String] / JSON)
 ├── scrip (String)
 ├── from_date (Date)
@@ -1136,7 +1168,58 @@ known_fraudsters
 ├── scrips_involved (Array[String] / JSON)
 ├── conviction_date (Date)
 └── source_url (String)
+
+market_signals  ← NEW (PS-402)
+├── id (String(36) PK, UUID)
+├── signal_type (String: url_threat/social_post/news_headline/whatsapp_forward)
+├── platform (String: web/twitter/reddit/telegram/whatsapp/news)
+├── source_url (String(2048), nullable)
+├── raw_text (Text, nullable)
+├── scrips_mentioned (JSON, list of NSE symbols)
+├── entity_id (String, nullable)
+├── misinfo_score (Float)
+├── social_signal_score (Float)
+├── threat_score (Float)           # composite: url×0.6 + misinfo×0.25 + social×0.15
+├── is_market_moving (Boolean)     # True when threat_score ≥ 0.6
+├── alert_id (String FK→alerts, nullable)
+├── ingested_at (DateTime, indexed)
+└── source_meta (JSON)             # likes, shares, velocity_per_hour, etc.
 ```
+
+---
+
+## PS-402 Ingestion API
+
+A new unified router (`api/routers/ps402.py`) exposes all PS-402 digital threat ingestion and querying capabilities under the `/ps402` prefix. All endpoints require JWT authentication.
+
+### Ingestion endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/ps402/ingest/url` | Ingest a single URL — phishing-scores it, persists as `MarketSignal`, optionally creates an `Alert` |
+| `POST` | `/ps402/ingest/social` | Ingest a social post/headline — misinfo + manipulation scoring, velocity boost, `MarketSignal` persisted |
+| `POST` | `/ps402/ingest/batch` | Batch ingest a list of mixed URL/social records in one call |
+| `GET` | `/ps402/signals` | List `MarketSignal` records with filters: `scrip`, `platform`, `is_market_moving`, `limit`, `offset` |
+| `GET` | `/ps402/summary` | 7-day summary: total signals, market-moving count, avg threat score, by-type breakdown, top entities |
+
+### Scoring logic
+
+**URL threat score:** `url_heuristic×0.6 + misinfo_score×0.25 + social_score×0.15`  
+**Social post combined score:** `misinfo_score×0.55 + social_signal_score×0.45 + velocity_boost (≤ +0.20)`  
+**Market-moving threshold:** `threat_score ≥ 0.60` → `is_market_moving = True` → ARGUS `Alert` auto-created
+
+### Demo
+
+```bash
+python demo/ps402_demo.py
+```
+
+Runs 5 scenarios end-to-end (no HTTP server required):
+1. Phishing URL targeting NSE (`threat_score` ≥ 0.5)
+2. Reddit pump post — RELIANCE (`combined_score` ≥ 0.5, scrip extracted)
+3. WhatsApp fake SEBI circular — TATAMOTORS (`misinfo_score` ≥ 0.4)
+4. Telegram phishing link — HDFCBANK (`threat_score` ≥ 0.5, `is_market_moving` printed)
+5. Batch ingest (1 URL + 2 social posts → 3 `signal_id`s)
 
 ---
 
@@ -1194,6 +1277,11 @@ All subsequent requests: `Authorization: Bearer <token>`
 | POST | `/reports/case/{id}` | ✅ | Generate SEBI PDF case |
 | GET | `/reports/case/{id}/download` | ✅ | Download PDF |
 | GET | `/reports/summary/weekly` | ✅ | 7-day statistics |
+| **POST** | **`/ps402/ingest/url`** | ✅ | **PS-402: Ingest & score a URL** |
+| **POST** | **`/ps402/ingest/social`** | ✅ | **PS-402: Ingest & score a social post** |
+| **POST** | **`/ps402/ingest/batch`** | ✅ | **PS-402: Batch ingest mixed records** |
+| **GET** | **`/ps402/signals`** | ✅ | **PS-402: List market signals with filters** |
+| **GET** | **`/ps402/summary`** | ✅ | **PS-402: 7-day digital threat summary** |
 
 ---
 
@@ -1289,37 +1377,39 @@ docker-compose down
 
 ## Current Status
 
-**As of April 2026 — Fully Operational — 17/17 Verified**
+**As of April 2026 — Fully Operational — 20/20 Verified**
 
 | Component | Status | Notes |
 |---|---|---|
-| **GNN / TCN Model** | [TRAINED] | `tcn_weights.pt` (345 KB) — trained on synthetic fraud graphs |
-| **DNA Autoencoder** | [TRAINED] | `autoencoder_weights.pt` (341 KB) — trained on synthetic trade sequences |
-| **Zero-Day Ensemble** | [OK] Operational | Fit-on-demand; pyod 1.1.3 installed |
-| **Cross-Market Fusion** | [OK] Operational | DoWhy causal inference enabled |
-| **Social Signal Fetcher** | [OK] Operational | Keyword + velocity scoring; `social_signal_score` on Alert; real-time fetch at alert creation |
-| **Misinfo Detector** | [TRAINED] | `misinfo_weights.pkl` on disk; TF-IDF + LR, CV F1 > 0.90 |
-| **Generic Threat Adapter** | [OK] Operational | Phishing / transaction / activity log normalizer; `normalize_batch()` available |
-| **Mitigation Engine** | [OK] Operational | severity + recommended_action + auto_mitigate on every alert; 5 API endpoints |
-| **Scoring Engine** | [OK] Upgraded | Poisson null model + impossibility boosters + supplementary scores |
-| **FastAPI API** | [OK] Running | Port 8080, JWT auth, SSE live stream, 19 endpoints |
-| **Streamlit Dashboard** | [OK] Running | Port 8501, 5 pages incl. Mitigation Center |
-| **React Dashboard** | [OK] Running | Port 5173, 6 pages, 12 components, D3.js graphs |
-| **SEBI PDF Generator** | [OK] Working | 8-page case reports with evidence tables |
-| **SQLite DB** | [OK] Active | All 26 columns on alerts table; misinfo + mitigation fields present |
-| **Demo Scenarios** | [OK] Live | 4 scenarios: pump_dump, circular_trading, spoofing, social_manipulation |
-| **Verification Suite** | 17/17 PASSED | `verify_argus.py` — all 17 checks pass on Windows without errors |
+| **GNN / TCN Model** | ✅ TRAINED | `tcn_weights.pt` (345 KB) — trained on synthetic fraud graphs |
+| **DNA Autoencoder** | ✅ TRAINED | `autoencoder_weights.pt` (341 KB) — trained on synthetic trade sequences |
+| **Zero-Day Ensemble** | ✅ Operational | Fit-on-demand; pyod 1.1.3 installed |
+| **Cross-Market Fusion** | ✅ Operational | DoWhy causal inference enabled |
+| **Social Signal Fetcher** | ✅ Operational | Keyword + velocity scoring; `social_signal_score` on Alert |
+| **Misinfo Detector** | ✅ TRAINED | `misinfo_weights.pkl` on disk; TF-IDF + LR, CV F1 > 0.90 |
+| **Generic Threat Adapter** | ✅ Operational | Phishing / transaction / activity log normalizer |
+| **URL & Social Ingestor** | ✅ NEW Operational | `url_social_ingestor.py` — PS-402 ingestion, scoring, DB persistence, alert creation |
+| **Mitigation Engine** | ✅ Operational | severity + recommended_action + auto_mitigate on every alert; 5 API endpoints |
+| **Scoring Engine** | ✅ Upgraded | Poisson null model + impossibility boosters + supplementary scores |
+| **FastAPI API** | ✅ Running | Port 8080, JWT auth, SSE live stream, **24 endpoints** incl. 5 PS-402 |
+| **Streamlit Dashboard** | ✅ Running | Port 8501, **6 pages** incl. PS-402 Signals |
+| **React Dashboard** | ✅ Running | Port 5173, **7 pages**, 12 components, D3.js graphs |
+| **SEBI PDF Generator** | ✅ Working | 8-page case reports with evidence tables |
+| **SQLite DB** | ✅ Active | `market_signals` table + all 30 columns on `alerts` table present |
+| **Alembic Migrations** | ✅ 2 versions | `001_initial` + `002_market_signals` |
+| **Demo Scenarios** | ✅ Live | 4 real-case + `ps402_demo.py` (5 scenarios, 5/5 PASS) |
+| **Verification Suite** | ✅ **20/20 PASSED** | `verify_argus.py` — all 20 checks pass on Windows |
 | **torch-geometric** | 2.7.0 | Installed and verified importable |
 | **pyod** | Installed | Required by Zero-Day Ensemble |
 
 **Functional highlights:**
-- **7-Engine + Mitigation Architecture**: GNN, DNA, Cross-Market, Zero-Day, Social Signal, Misinfo Detector, and Real-Time Mitigation Engine all operational.
-- **Dual Dashboard**: Both Streamlit (quick-launch) and React (pitch-grade terminal UI) fully operational — both include Mitigation Center page.
+- **PS-402 Ingestion Layer**: Full URL and social post ingestion pipeline — `ingest_url()`, `ingest_social_post()`, `ingest_batch()` — with phishing heuristics, misinfo scoring, velocity boost, `MarketSignal` DB persistence, and automatic `Alert` creation when `threat_score ≥ 0.60`.
+- **7-Engine + Mitigation Architecture**: GNN, DNA, Cross-Market, Zero-Day, Social Signal, Misinfo Detector, URL/Social Ingestor, and Real-Time Mitigation Engine all operational.
+- **Dual Dashboard (7+6 pages)**: React now has a `Digital Threats` page (`/ps402`); Streamlit has a `PS-402 Signals` page — both show the new `market_signals` table with live filters.
 - **Trained Models**: GNN, DNA autoencoder, and Misinfo classifier have saved weights; load at API startup in < 1 second.
 - **Real-Time Mitigation**: Every new alert gets `severity`, `recommended_action`, `auto_mitigated`, and `escalated_to_sebi` populated at creation time.
-- **Real Social Signal Fetch**: `social_signal_score` is now fetched live via `social_signal_fetcher` at alert creation time (best-effort, non-blocking).
 - **Auto-Mitigation**: Critical pump-and-dump/spoofing alerts and phishing threats are auto-acted without analyst intervention.
-- **4 Real-Case Demos**: `pump_and_dump`, `circular_trading`, `spoofing`, and `social_manipulation` (Reddit/Twitter pump + phishing) all verified end-to-end.
+- **5 Real-Case Demos**: `pump_and_dump`, `circular_trading`, `spoofing`, `social_manipulation`, and `ps402_demo` (5/5 PASS).
 - **Offline Demo Mode**: React dashboard runs on mock data (`VITE_USE_MOCK=true`) for pitch presentations without a live API.
 - **PDF Reports**: SEBI-compliant 8-page case PDFs generate successfully.
 - **Windows-Safe**: All Unicode/emoji print statements replaced with ASCII equivalents; `charmap` codec errors eliminated.
@@ -1364,23 +1454,30 @@ docker-compose down
 - [ ] Calibrate zero-day ensemble contamination rate against real base rate
 - [ ] Validate precision/recall on held-out confirmed SEBI cases
 
-### Phase 4 — Dashboard & Reporting [OK] (Complete)
+### Phase 4 — Dashboard & Reporting ✅ (Complete)
 - [x] Build Streamlit multi-page surveillance dashboard + Mitigation Center page
-- [x] Build React/Vite high-performance terminal dashboard (6 pages, 12 components)
+- [x] Build React/Vite high-performance terminal dashboard (7 pages, 12 components)
 - [x] Implement D3.js network graph with force simulation
 - [x] Implement DNA radar chart and score gauges
 - [x] PDF generation end-to-end verified
 - [x] Social media threat ingestion (social_signal_fetcher.py)
 - [x] Financial misinformation detection engine (models/misinfo/)
 - [x] Generic digital threat adapter (phishing, transaction logs, activity logs)
-- [x] Extended Alert schema (social_signal_score, misinfo_score, threat_type, ThreatTypeEnum)
+- [x] Extended Alert schema (social_signal_score, misinfo_score, threat_type, platform, threat_category)
 - [x] Real-Time Mitigation Engine (scoring/mitigation_engine.py)
 - [x] Mitigation DB columns (severity, recommended_action, mitigation_status, auto_mitigated, escalated_to_sebi)
 - [x] Mitigation API endpoints (mitigate / dismiss / escalate / summary / pending)
 - [x] React MitigationCenter page (pie chart, action breakdown, pending table, action buttons)
 - [x] Streamlit Mitigation Center page (metrics, bar chart, action buttons)
 - [x] Severity badge + mitigation actions in LiveAlerts expanded rows
-- [x] verify_argus.py 17/17 PASSED
+- [x] **PS-402 MarketSignal ORM + CRUD** (data/db/models.py, data/db/crud.py)
+- [x] **PS-402 URL & Social Ingestor** (data/ingest/url_social_ingestor.py)
+- [x] **PS-402 Unified API Router** — 5 endpoints under `/ps402` (api/routers/ps402.py)
+- [x] **Alembic migration 002_market_signals** (dialect-agnostic: SQLite + PostgreSQL)
+- [x] **React Digital Threats page** (`/ps402` route + bolt icon nav entry in Sidebar)
+- [x] **Streamlit PS-402 Signals page** (metric row, filters, dataframe, market-moving warnings)
+- [x] **ps402_demo.py** — 5/5 standalone scenarios PASS (no HTTP server required)
+- [x] verify_argus.py **20/20 PASSED**
 - [ ] Connect React live alerts to Redis pub/sub (currently polling)
 - [ ] Add SEBI email notification on critical alerts (score >= 9.0)
 
@@ -1413,3 +1510,5 @@ Proprietary — ARGUS is an enterprise system. All rights reserved.
 ---
 
 *Built with PyTorch 2.3, FastAPI, SQLAlchemy, React 18, Tailwind CSS, D3.js, Recharts, Framer Motion, torch-geometric 2.7.0, pyod 1.1.3, scikit-learn, dowhy, reportlab, streamlit, pyvis, and the full scientific Python stack.*
+
+*PS-402 ingestion layer added April 2026 — `MarketSignal` table, `url_social_ingestor`, 5 new `/ps402` API endpoints, React Digital Threats page, Streamlit PS-402 Signals page. Verification: 20/20 PASSED.*

@@ -1,6 +1,7 @@
 """
 scoring/alert_engine.py — Central alert orchestration engine.
-Runs all 4 AI detection models, computes composite score, creates DB alerts.
+Runs all AI detection models, computes composite threat score, creates DB alerts.
+SENTINEL: Scalable ENTity Intelligence for NEtwork-Level threat detection
 """
 from __future__ import annotations
 
@@ -18,10 +19,19 @@ logger = logging.getLogger(__name__)
 
 ALERT_THRESHOLD = float(os.getenv("ALERT_SCORE_THRESHOLD", "7.5"))
 
+THREAT_CATEGORIES = [
+    "coordinated_attack",
+    "malicious_content",
+    "phishing",
+    "misinformation",
+    "platform_abuse",
+    "novel_threat",
+]
+
 
 class AlertEngine:
     """
-    Orchestrates all ARGUS detection models and creates DB alerts.
+    Orchestrates all SENTINEL detection models and creates DB alerts.
     """
 
     def __init__(self, session, redis_client=None, threshold: float = ALERT_THRESHOLD):
@@ -37,18 +47,21 @@ class AlertEngine:
         self._fusion = None
 
     def _get_tcn(self):
+        """Network Coordination Detector (GNN/TCN)."""
         if self._tcn_model is None:
             from models.gnn.train_tcn import load_model
             self._tcn_model = load_model()
         return self._tcn_model
 
     def _get_autoencoder(self):
+        """Behavioral Anomaly Profiler (DNA Autoencoder)."""
         if self._autoencoder is None:
             from models.dna.autoencoder import get_autoencoder
             self._autoencoder = get_autoencoder()
         return self._autoencoder
 
     def _get_zero_day(self):
+        """Novel Threat Detector (Zero-Day Ensemble)."""
         if self._zero_day is None:
             from models.zero_day.anomaly import get_detector
             self._zero_day = get_detector()
@@ -61,6 +74,7 @@ class AlertEngine:
         return self._fp_store
 
     def _get_fusion(self):
+        """Cross-Platform Threat Correlator (Cross-Market Fusion)."""
         if self._fusion is None:
             from models.cross_market.fusion import CrossMarketFusion
             self._fusion = CrossMarketFusion()
@@ -73,7 +87,7 @@ class AlertEngine:
         to_dt: datetime,
     ) -> Optional[object]:
         """
-        Runs complete ARGUS scan for given scrip + window.
+        Runs complete SENTINEL scan for given entity/platform + window.
         Returns created Alert ORM object if score >= threshold, else None.
         """
         from data.db.crud import get_trades, create_alert
@@ -81,7 +95,7 @@ class AlertEngine:
         from models.dna.autoencoder import extract_features
         from scoring.impossibility import compute_synchrony_chi2
 
-        # 1. Load trades from DB
+        # 1. Load data from DB
         trades = get_trades(
             self.session, scrip=scrip, from_dt=from_dt, to_dt=to_dt, limit=10000
         )
@@ -101,9 +115,10 @@ class AlertEngine:
         ]
         trades_df = pd.DataFrame(trade_rows)
 
-        # 2. GNN — Temporal Coincidence Network
-        gnn_score = 0.0
-        accounts_involved = list(trades_df["account_id"].unique())
+        # 2. Network Coordination Detector (GNN/TCN)
+        # Detects coordinated bot networks, troll farms, fake account rings
+        coordination_score = 0.0
+        entities_involved = list(trades_df["account_id"].unique())
         try:
             graph = build_trade_graph(trades_df, window_ms=50, min_coincidences=3)
             tcn = self._get_tcn()
@@ -111,22 +126,23 @@ class AlertEngine:
             with torch.no_grad():
                 _, prob = tcn(graph)
             gnn_raw = float(prob.squeeze().item())
-            gnn_score = round(gnn_raw * 10.0, 3)
+            coordination_score = round(gnn_raw * 10.0, 3)
 
             # Poisson impossibility from edge count
             n_edges = graph.edge_index.shape[1] // 2
             poisson_score = compute_poisson_impossibility(
                 observed_coincidences=n_edges,
-                n_accounts=len(accounts_involved),
+                n_accounts=len(entities_involved),
                 n_trades=len(trades),
                 window_ms=50.0,
             )
-            gnn_score = round((gnn_score + poisson_score) / 2.0, 3)
+            coordination_score = round((coordination_score + poisson_score) / 2.0, 3)
         except Exception as exc:
-            logger.warning(f"GNN scoring failed for {scrip}: {exc}")
+            logger.warning(f"Network Coordination Detector failed for {scrip}: {exc}")
 
-        # 3. DNA — Behavioral fingerprint matching
-        dna_score = 0.0
+        # 3. Behavioral Anomaly Profiler (DNA Autoencoder)
+        # Flags abnormal user behavior patterns on platforms
+        behavior_score = 0.0
         try:
             ae = self._get_autoencoder()
             fp_store = self._get_fp_store()
@@ -142,70 +158,73 @@ class AlertEngine:
                 if matches:
                     max_sim = max(max_sim, matches[0]["similarity"])
 
-            dna_score = round(max_sim * 10.0, 3)
+            behavior_score = round(max_sim * 10.0, 3)
         except Exception as exc:
-            logger.warning(f"DNA scoring failed for {scrip}: {exc}")
+            logger.warning(f"Behavioral Anomaly Profiler failed for {scrip}: {exc}")
 
-        # 4. Cross-market fusion
-        cross_market_score = 0.0
+        # 4. Cross-Platform Threat Correlator
+        # Correlates threats across Twitter, Reddit, Telegram, web
+        cross_platform_score = 0.0
         try:
             fusion = self._get_fusion()
-            cross_market_score = fusion.cross_market_score(
+            cross_platform_score = fusion.cross_market_score(
                 scrip, from_dt, to_dt, self.session
             )
         except Exception as exc:
-            logger.warning(f"Cross-market scoring failed for {scrip}: {exc}")
+            logger.warning(f"Cross-Platform Threat Correlator failed for {scrip}: {exc}")
 
-        # 5. Zero-day anomaly detection
-        zero_day_score = 0.0
+        # 5. Novel Threat Detector (Zero-Day Ensemble)
+        # Catches unseen attack patterns
+        novelty_score = 0.0
         try:
             detector = self._get_zero_day()
             feature_matrix = detector.build_session_features(trades_df, window_minutes=30)
             zd_scores = detector.score(feature_matrix)
-            zero_day_score = round(float(zd_scores.max()), 3)
+            novelty_score = round(float(zd_scores.max()), 3)
         except Exception as exc:
-            logger.warning(f"Zero-day scoring failed for {scrip}: {exc}")
+            logger.warning(f"Novel Threat Detector failed for {scrip}: {exc}")
 
-        # 6. Composite score
+        # 6. Composite threat score
         overall = compute_composite_score(
-            gnn_score, zero_day_score, dna_score, cross_market_score
+            coordination_score, novelty_score, behavior_score, cross_platform_score
         )
 
-        # 7. Classify scheme type from relative scores
-        scheme_type = _classify_scheme(
-            gnn_score, dna_score, cross_market_score, zero_day_score
+        # 7. Classify threat category from relative scores
+        threat_category = _classify_threat(
+            coordination_score, behavior_score, cross_platform_score, novelty_score
         )
 
         logger.info(
-            f"ARGUS scan {scrip} [{from_dt.date()}–{to_dt.date()}]: "
-            f"GNN={gnn_score} DNA={dna_score} CM={cross_market_score} "
-            f"ZD={zero_day_score} OVERALL={overall} (threshold={self.threshold})"
+            f"SENTINEL scan {scrip} [{from_dt.date()}–{to_dt.date()}]: "
+            f"COORD={coordination_score} BEHAV={behavior_score} "
+            f"CROSS={cross_platform_score} NOVEL={novelty_score} "
+            f"OVERALL={overall} (threshold={self.threshold})"
         )
 
-        # 7.5 Attempt real-time social signal score (best-effort, never blocks alert flow)
+        # 7.5 Attempt real-time social threat signal (best-effort, never blocks alert flow)
         social_signal_score_raw: float = 0.0
         try:
             from data.ingest.social_signal_fetcher import get_social_score_for_scrip
             social_signal_score_raw = get_social_score_for_scrip(scrip)  # returns [0, 10]
         except Exception as exc:
-            logger.debug(f"Social signal fetch skipped for {scrip}: {exc}")
+            logger.debug(f"Social threat monitor fetch skipped for {scrip}: {exc}")
 
         # 8. Create Alert if above threshold
         if overall >= self.threshold:
             alert = create_alert(
                 self.session,
                 scrip=scrip,
-                exchange="NSE",
+                exchange="web",
                 detected_at=datetime.utcnow(),
                 impossibility_score=overall,
-                scheme_type=scheme_type,
-                accounts_involved=accounts_involved[:50],  # cap at 50
-                gnn_score=gnn_score,
-                dna_score=dna_score,
-                cross_market_score=cross_market_score,
-                zero_day_score=zero_day_score,
+                scheme_type=threat_category,
+                accounts_involved=entities_involved[:50],  # cap at 50
+                gnn_score=coordination_score,
+                dna_score=behavior_score,
+                cross_market_score=cross_platform_score,
+                zero_day_score=novelty_score,
                 social_signal_score=social_signal_score_raw,
-                # misinfo_score stays 0.0 at creation — no text input from trade data
+                # misinfo_score stays 0.0 at creation — no text input from raw data
             )
 
             # 9. Populate mitigation recommendation immediately
@@ -214,13 +233,13 @@ class AlertEngine:
                 me = get_mitigation_engine()
                 rec = me.recommend(
                     alert_score=overall,
-                    threat_type=getattr(alert, "threat_type", "market_manipulation"),
-                    scheme_type=scheme_type,
-                    gnn_score=gnn_score,
-                    dna_score=dna_score,
-                    zero_day_score=zero_day_score,
-                    social_signal_score=social_signal_score_raw / 10.0,  # normalize to [0,1] for engine
-                    misinfo_score=0.0,  # not available from trade data at creation time
+                    threat_type=getattr(alert, "threat_type", "generic_digital_threat"),
+                    scheme_type=threat_category,
+                    gnn_score=coordination_score,
+                    dna_score=behavior_score,
+                    zero_day_score=novelty_score,
+                    social_signal_score=social_signal_score_raw / 10.0,  # normalize to [0,1]
+                    misinfo_score=0.0,
                 )
                 alert.recommended_action = rec["recommended_action"]
                 alert.severity = rec["severity"]
@@ -230,7 +249,7 @@ class AlertEngine:
                 if rec["auto_mitigate"]:
                     alert.mitigation_status = "applied"
                     alert.mitigation_applied_at = datetime.utcnow()
-                    alert.mitigation_applied_by = "argus_auto"
+                    alert.mitigation_applied_by = "sentinel_auto"
                 self.session.commit()
                 self.session.refresh(alert)
             except Exception as exc:
@@ -247,7 +266,7 @@ class AlertEngine:
         to_dt: datetime,
     ) -> list:
         """
-        Fetches all scrips with trades in the window, runs scan for each.
+        Fetches all entities/scrips with signals in the window, runs scan for each.
         Returns alerts sorted by impossibility_score descending.
         """
         from data.db.crud import get_distinct_scrips
@@ -266,21 +285,21 @@ class AlertEngine:
         return alerts
 
 
-def _classify_scheme(
-    gnn: float,
-    dna: float,
-    cross_market: float,
-    zero_day: float,
+def _classify_threat(
+    coordination: float,
+    behavior: float,
+    cross_platform: float,
+    novelty: float,
 ) -> str:
-    """Infers likely manipulation scheme from model scores."""
-    if gnn > 8.0:
-        return "pump_and_dump"
-    if cross_market > 7.0:
-        return "circular_trading"
-    if dna > 7.0 and gnn > 5.0:
-        return "spoofing"
-    if zero_day > 8.0:
-        return "zero_day_anomaly"
-    if gnn > 6.0 and cross_market > 5.0:
-        return "insider_trading"
-    return "suspected_manipulation"
+    """Infers likely digital threat category from model scores."""
+    if coordination > 8.0:
+        return "coordinated_attack"
+    if cross_platform > 7.0:
+        return "malicious_content"
+    if behavior > 7.0 and coordination > 5.0:
+        return "phishing"
+    if novelty > 8.0:
+        return "novel_threat"
+    if coordination > 6.0 and cross_platform > 5.0:
+        return "platform_abuse"
+    return "misinformation"

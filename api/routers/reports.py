@@ -1,5 +1,6 @@
 """
-api/routers/reports.py — PDF case generation, download, and weekly summary endpoints.
+api/routers/reports.py — Threat report generation, download, and weekly summary endpoints.
+PS-402: Detection of Digital Threats & Malicious Content
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func, desc
 
 from api.auth import get_current_user
 from api.schemas import CaseGenerateRequest, CaseGenerateResponse, SEBICaseOut, WeeklySummaryOut
@@ -26,20 +28,22 @@ from data.db.session import get_db
 
 router = APIRouter()
 
-REPORTS_DIR = Path(os.getenv("REPORTS_DIR", "/tmp/argus_reports"))
+REPORTS_DIR = Path(os.getenv("REPORTS_DIR", "/tmp/sentinel_reports"))
 REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-@router.post("/case/{alert_id}", response_model=CaseGenerateResponse)
-async def generate_case(
+# ─── POST /reports/threat-report/{alert_id} ───────────────────────────────────
+
+@router.post("/threat-report/{alert_id}", response_model=CaseGenerateResponse)
+async def generate_threat_report(
     alert_id: uuid.UUID,
     body: CaseGenerateRequest,
     db: Session = Depends(get_db),
     _user: dict = Depends(get_current_user),
 ):
     """
-    Generates a SEBI-style PDF case file for the given alert.
-    Creates or updates SEBICase record. Returns download URL.
+    Generates a SENTINEL threat report PDF for the given alert.
+    Creates or updates ThreatCase record. Returns download URL.
     """
     from reports.pdf_generator import generate_case_pdf
 
@@ -52,10 +56,10 @@ async def generate_case(
 
     from_date = body.from_date or alert.detected_at.date() - timedelta(days=30)
     to_date = body.to_date or alert.detected_at.date()
-    entity_names = body.entity_names or alert.accounts_involved[:5]
+    entity_names = body.entity_names or (alert.entities_involved or alert.accounts_involved)[:5]
 
     if existing_case is None:
-        case_number = f"ARGUS/{datetime.utcnow().year}/{str(alert_id)[:8].upper()}"
+        case_number = f"SENTINEL/{datetime.utcnow().year}/{str(alert_id)[:8].upper()}"
         case = create_sebi_case(
             db,
             alert_id=alert.id,
@@ -66,12 +70,14 @@ async def generate_case(
             to_date=to_date,
             estimated_gain=body.estimated_gain,
             evidence_json={
-                "gnn_score": alert.gnn_score,
-                "dna_score": alert.dna_score,
-                "cross_market_score": alert.cross_market_score,
-                "zero_day_score": alert.zero_day_score,
-                "scheme_type": alert.scheme_type,
-                "accounts_involved": alert.accounts_involved,
+                "coordination_score": alert.gnn_score,
+                "behavior_score": alert.dna_score,
+                "cross_platform_score": alert.cross_market_score,
+                "novelty_score": alert.zero_day_score,
+                "threat_category": getattr(alert, "threat_category", alert.scheme_type),
+                "platform": getattr(alert, "platform", alert.exchange),
+                "entities_involved": entity_names,
+                "content_sample": getattr(alert, "content_sample", None),
                 "notes": body.notes or "",
             },
             status="draft",
@@ -80,7 +86,7 @@ async def generate_case(
         case = existing_case
 
     # Generate PDF
-    pdf_filename = f"case_{str(case.id)}.pdf"
+    pdf_filename = f"threat_{str(case.id)}.pdf"
     pdf_path = str(REPORTS_DIR / pdf_filename)
 
     try:
@@ -96,20 +102,41 @@ async def generate_case(
         case_id=case.id,
         case_number=case.case_number,
         pdf_path=pdf_path,
-        download_url=f"/reports/case/{alert_id}/download",
+        download_url=f"/reports/threat-report/{alert_id}/download",
     )
 
 
-@router.get("/case/{alert_id}/download")
-async def download_case(
+# ─── Legacy route alias ───────────────────────────────────────────────────────
+
+@router.post("/case/{alert_id}", response_model=CaseGenerateResponse)
+async def generate_case(
+    alert_id: uuid.UUID,
+    body: CaseGenerateRequest,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """
+    Legacy alias for /reports/threat-report/{alert_id}.
+    Generates a SENTINEL threat report PDF for the given alert.
+    """
+    return await generate_threat_report(alert_id, body, db, _user)
+
+
+# ─── GET /reports/threat-report/{alert_id}/download ──────────────────────────
+
+@router.get("/threat-report/{alert_id}/download")
+async def download_threat_report(
     alert_id: uuid.UUID,
     db: Session = Depends(get_db),
     _user: dict = Depends(get_current_user),
 ):
-    """Streams the PDF case file for download."""
+    """Streams the PDF threat report for download."""
     case = get_sebi_case_by_alert(db, alert_id)
     if not case or not case.pdf_path:
-        raise HTTPException(status_code=404, detail="Case PDF not found. Generate it first via POST /reports/case/{id}")
+        raise HTTPException(
+            status_code=404,
+            detail="Threat report PDF not found. Generate it first via POST /reports/threat-report/{id}"
+        )
 
     if not os.path.exists(case.pdf_path):
         raise HTTPException(status_code=404, detail="PDF file not found on disk")
@@ -117,15 +144,32 @@ async def download_case(
     return FileResponse(
         path=case.pdf_path,
         media_type="application/pdf",
-        filename=f"ARGUS_Case_{case.case_number.replace('/', '-')}.pdf",
+        filename=f"SENTINEL_ThreatReport_{case.case_number.replace('/', '-')}.pdf",
     )
 
+
+# ─── Legacy download alias ────────────────────────────────────────────────────
+
+@router.get("/case/{alert_id}/download")
+async def download_case(
+    alert_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """Legacy alias for /reports/threat-report/{alert_id}/download."""
+    return await download_threat_report(alert_id, db, _user)
+
+
+# ─── GET /reports/summary/weekly ─────────────────────────────────────────────
 
 @router.get("/summary/weekly", response_model=WeeklySummaryOut)
 async def weekly_summary(
     db: Session = Depends(get_db),
     _user: dict = Depends(get_current_user),
 ):
-    """Returns weekly statistics: alerts, resolved, false positive rate, top scrips."""
+    """
+    Returns weekly PS-402 threat statistics:
+    total_threats, by_category breakdown, top_platforms, mitigation_rate.
+    """
     stats = get_weekly_stats(db)
     return WeeklySummaryOut(**stats)

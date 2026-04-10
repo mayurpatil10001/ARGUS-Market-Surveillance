@@ -1,5 +1,6 @@
 """
-api/schemas.py — Pydantic v2 request/response schemas for ARGUS API.
+api/schemas.py — Pydantic v2 request/response schemas for SENTINEL API.
+SENTINEL: Scalable ENTity Intelligence for NEtwork-Level threat detection
 """
 from __future__ import annotations
 
@@ -80,22 +81,43 @@ class AccountSearchParams(BaseModel):
 # ─── Alert ────────────────────────────────────────────────────────────────────
 
 class AlertOut(BaseModel):
+    """
+    PS-402 threat alert response schema.
+    Renamed fields: scheme_type→threat_category, accounts_involved→entities_involved,
+    gnn_score→coordination_score, dna_score→behavior_score,
+    cross_market_score→cross_platform_score, zero_day_score→novelty_score.
+    Legacy aliases retained for backward compatibility.
+    """
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    # PS-402 platform field (twitter/reddit/web/telegram/email)
+    platform: str = "web"
     scrip: str
-    exchange: str
+    exchange: str = "web"  # legacy alias
     detected_at: datetime
     impossibility_score: float
-    scheme_type: str
-    accounts_involved: List[str] = Field(default_factory=list)
-    gnn_score: float
-    dna_score: float
-    cross_market_score: float
-    zero_day_score: float
+    # PS-402 threat classification
+    threat_category: str = "novel_threat"
+    scheme_type: str = "novel_threat"  # legacy alias
+    # PS-402 entity tracking
+    entities_involved: List[str] = Field(default_factory=list)
+    accounts_involved: List[str] = Field(default_factory=list)  # legacy alias
+    # PS-402 scoring fields
+    coordination_score: Optional[float] = Field(default=None, description="Network Coordination Detector score (35%)")
+    behavior_score: Optional[float] = Field(default=None, description="Behavioral Anomaly Profiler score (25%)")
+    novelty_score: Optional[float] = Field(default=None, description="Novel Threat Detector score (25%)")
+    cross_platform_score: Optional[float] = Field(default=None, description="Cross-Platform Threat Correlator score (15%)")
+    # Raw legacy score fields (mapped from DB)
+    gnn_score: float = 0.0
+    dna_score: float = 0.0
+    cross_market_score: float = 0.0
+    zero_day_score: float = 0.0
     social_signal_score: float = 0.0
     misinfo_score: float = 0.0
-    threat_type: str = "market_manipulation"
+    threat_type: str = "generic_digital_threat"
+    # content_sample stores a flagged post/URL/message snippet
+    content_sample: Optional[str] = None
     status: str
     case_file_path: Optional[str] = None
     assigned_to: Optional[str] = None
@@ -110,6 +132,26 @@ class AlertOut(BaseModel):
     severity: Optional[str] = "medium"
     escalated_to_sebi: Optional[bool] = False
     escalation_timestamp: Optional[datetime] = None
+
+    def model_post_init(self, __context):
+        # Populate PS-402 named score aliases from raw DB fields
+        if self.coordination_score is None:
+            object.__setattr__(self, 'coordination_score', self.gnn_score)
+        if self.behavior_score is None:
+            object.__setattr__(self, 'behavior_score', self.dna_score)
+        if self.cross_platform_score is None:
+            object.__setattr__(self, 'cross_platform_score', self.cross_market_score)
+        if self.novelty_score is None:
+            object.__setattr__(self, 'novelty_score', self.zero_day_score)
+        # Sync legacy aliases
+        if not self.threat_category or self.threat_category == "novel_threat":
+            if self.scheme_type and self.scheme_type != "novel_threat":
+                object.__setattr__(self, 'threat_category', self.scheme_type)
+        if not self.entities_involved:
+            object.__setattr__(self, 'entities_involved', self.accounts_involved)
+        if not self.platform or self.platform == "web":
+            if self.exchange and self.exchange != "web":
+                object.__setattr__(self, 'platform', self.exchange.lower())
 
 
 class AlertStatusUpdate(BaseModel):
@@ -128,6 +170,8 @@ class AlertListParams(BaseModel):
     status: Optional[str] = None
     min_score: Optional[float] = None
     scrip: Optional[str] = None
+    platform: Optional[str] = None
+    threat_category: Optional[str] = None
     from_date: Optional[datetime] = None
     to_date: Optional[datetime] = None
     severity: Optional[str] = None
@@ -165,7 +209,7 @@ class MitigationSummaryOut(BaseModel):
     by_action: dict
 
 
-# ─── SEBI Case / Reports ──────────────────────────────────────────────────────
+# ─── Threat Report / Case ─────────────────────────────────────────────────────
 
 class SEBICaseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -199,18 +243,35 @@ class CaseGenerateResponse(BaseModel):
     download_url: str
 
 
+# ─── Weekly / Platform Summary (PS-402) ───────────────────────────────────────
+
 class WeeklySummaryOut(BaseModel):
+    """
+    PS-402 weekly threat summary.
+    Fields: total_threats, by_category breakdown, top_platforms, mitigation_rate.
+    Legacy fields retained for backward compatibility.
+    """
     total_alerts: int
+    total_threats: int = 0          # PS-402 primary field (equals total_alerts)
     resolved: int
     false_positives: int
     false_positive_rate_pct: float
-    top_flagged_scrips: List[dict]
+    # PS-402 breakdown fields
+    by_category: dict = Field(default_factory=dict,
+                              description="Threat counts by category (coordinated_attack, phishing, etc.)")
+    top_platforms: List[dict] = Field(default_factory=list,
+                                      description="Top platforms by threat volume")
+    mitigation_rate: float = 0.0    # percentage of threats mitigated
+    # Legacy field
+    top_flagged_scrips: List[dict] = Field(default_factory=list)
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 class HealthOut(BaseModel):
     status: str = "ok"
+    system: str = "SENTINEL"
+    version: str = "2.0.0"
     services: dict = Field(default_factory=dict)
     model_versions: dict = Field(default_factory=dict)
     timestamp: datetime = Field(default_factory=datetime.utcnow)

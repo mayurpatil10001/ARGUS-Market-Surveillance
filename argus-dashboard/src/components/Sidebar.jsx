@@ -69,6 +69,15 @@ function IconShield() {
     </svg>
   )
 }
+function IconBolt() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <path d="M10.5 2.5L4 10H9L7.5 15.5L14 8H9L10.5 2.5Z"
+        stroke="currentColor" strokeWidth="1.3" fill="none"
+        strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
 function IconChevronLeft() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -90,6 +99,7 @@ const NAV = [
   { to: '/network',    label: 'Network Graph',      icon: <IconNetwork /> },
   { to: '/cases',      label: 'Case Builder',       icon: <IconCase /> },
   { to: '/summary',    label: 'Weekly Summary',     icon: <IconChart /> },
+  { to: '/ps402',      label: 'Digital Threats',    icon: <IconBolt /> },
   { to: '/mitigation', label: 'Mitigation Center',  icon: <IconShield /> },
 ]
 
@@ -174,14 +184,14 @@ export default function Sidebar() {
               fontSize: 20,
               color: 'var(--accent-green)',
               letterSpacing: 5,
-            }}>ARGUS</div>
+            }}>SENTINEL</div>
             <div style={{
               fontSize: 8,
               color: 'var(--text-dim)',
               fontFamily: 'var(--font-mono)',
               letterSpacing: 2,
               marginTop: 2,
-            }}>SURVEILLANCE v2.0</div>
+            }}>THREAT DETECTION v2.0</div>
           </div>
         )}
         {collapsed && (
@@ -191,7 +201,7 @@ export default function Sidebar() {
             fontSize: 16,
             color: 'var(--accent-green)',
             letterSpacing: 2,
-          }}>A</div>
+          }}>S</div>
         )}
       </div>
 
@@ -275,10 +285,10 @@ export default function Sidebar() {
           </div>
         )}
         {collapsed && <div style={{ height: 6 }} />}
-        <StatusDot label="GNN/TCN"    status={gnnStatus}   collapsed={collapsed} />
-        <StatusDot label="DNA"        status={dnaStatus}   collapsed={collapsed} />
-        <StatusDot label="CROSS-MKT"  status={crossStatus} collapsed={collapsed} />
-        <StatusDot label="ZERO-DAY"   status={zdStatus}    collapsed={collapsed} />
+        <StatusDot label="COORD DETECT" status={gnnStatus}   collapsed={collapsed} />
+        <StatusDot label="BEHAV PROF"  status={dnaStatus}   collapsed={collapsed} />
+        <StatusDot label="CROSS-PLAT"  status={crossStatus} collapsed={collapsed} />
+        <StatusDot label="NOVEL THRT"  status={zdStatus}    collapsed={collapsed} />
       </div>
 
       {/* ── Collapse toggle ─────────────────────────────────────────── */}

@@ -6,8 +6,9 @@
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green)](https://fastapi.tiangolo.com)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.3.0-orange)](https://pytorch.org)
+[![torch-geometric](https://img.shields.io/badge/torch--geometric-2.7.0-red)](https://pyg.org)
 [![License](https://img.shields.io/badge/License-Proprietary-red)](#)
-[![Status](https://img.shields.io/badge/Status-Operational%20✅-brightgreen)](#current-status)
+[![Status](https://img.shields.io/badge/Status-10%2F10%20Verified-brightgreen)](#current-status)
 
 ---
 
@@ -45,10 +46,12 @@
 
 ARGUS (**A**daptive **R**egulatory **G**raph for **U**nseen **S**urveillance) is an enterprise AI system that monitors Indian capital markets in real-time and automatically detects market manipulation schemes before or as they happen.
 
-It combines **4 independent AI engines** — graph neural networks, behavioral biometrics, cross-market fusion, and zero-day anomaly detection — into a single weighted score that triggers alerts for SEBI enforcement action.
+It combines **6 independent AI engines** — graph neural networks, behavioral biometrics, cross-market fusion, zero-day anomaly detection, social media signal analysis, and financial misinformation detection — into a composite score that triggers alerts for SEBI enforcement action.
 
 **Core purpose:**
 - Detect pump & dump, spoofing, layering, circular trading, and insider trading signals
+- Ingest and score threats from social media, news, phishing URLs, and generic platform activity
+- Detect coordinated financial misinformation and market-moving fake news
 - Generate SEBI-compliant case reports with evidence automatically
 - Provide a real-time surveillance dashboard for market regulators
 - Build behavioral DNA fingerprints of traders to identify repeat offenders
@@ -58,36 +61,6 @@ It combines **4 independent AI engines** — graph neural networks, behavioral b
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         DATA SOURCES                                │
-│  NSE Bhavcopy  │  BSE Announcements  │  SEBI Orders  │  MCA21      │
-│  NSE Bulk Deals│  Broker Feed (Kite) │  Kafka Stream │  MCX Data   │
-└────────────────────────────┬────────────────────────────────────────┘
-                             │
-                    ┌────────▼────────┐
-                    │  ETL PIPELINE   │
-                    │  data/ingest/   │
-                    │  data/pipeline/ │
-                    └────────┬────────┘
-                             │
-          ┌──────────────────┼──────────────────┐
-          │                  │                  │
-  ┌───────▼──────┐  ┌────────▼──────┐  ┌───────▼──────┐  ┌──────────────┐
-  │  GNN / TCN   │  │ DNA Autoencdr │  │ Cross-Market │  │  Zero-Day    │
-  │ models/gnn/  │  │ models/dna/   │  │ models/cross │  │ models/zero  │
-  │ [TRAINED ✅] │  │ [TRAINED ✅]  │  │ _market/     │  │ _day/        │
-  └───────┬──────┘  └────────┬──────┘  └───────┬──────┘  └──────┬───────┘
-          │                  │                  │                │
-          └──────────────────┼──────────────────┘                │
-                             │                                   │
-                    ┌────────▼────────────────────────────────────┐
-                    │            SCORING ENGINE                    │
-                    │  scoring/alert_engine.py                     │
-                    │  scoring/impossibility.py                    │
-                    │  Score = 0.35×GNN + 0.25×ZeroDay +          │
-                    │          0.25×DNA + 0.15×CrossMarket         │
-                    └────────┬────────────────────────────────────┘
-                             │
                ┌─────────────┼──────────────────┐
                │             │                  │
       ┌────────▼────────┐    │         ┌────────▼────────┐
@@ -106,6 +79,8 @@ It combines **4 independent AI engines** — graph neural networks, behavioral b
 ---
 
 ## AI Engines
+
+ARGUS now runs **6 AI engines** — 4 core financial manipulation detectors plus 2 new digital threat engines added in PS-402.
 
 ### 1. Temporal Coincidence Network (GNN)
 **Weight: 35% of total score**
@@ -158,6 +133,43 @@ A **4-model ensemble** for detecting novel manipulation schemes that have never 
 
 All four scores are averaged into a single zero-day score. This engine requires no labeled fraud data and continuously adapts.
 
+### 5. Social Signal Fetcher
+**Supplementary score: `social_signal_score` on Alert**
+
+Monitors social media platforms (Twitter/X, Reddit, WhatsApp-forwarded content) for coordinated financial manipulation signals — pump groups, coordinated buy alerts, and operator-driven FOMO campaigns.
+
+**How it works:**
+- Keyword scoring for high-risk financial language (pump, circuit, guaranteed, operator, multibagger, etc.)
+- Engagement velocity analysis: sudden spike in posts about a scrip → manipulation signal
+- Cross-platform deduplication and source credibility weighting
+- Returns `social_signal_score` ∈ [0, 1] stored on the `Alert` record
+
+**Module:** `data/ingest/social_signal_fetcher.py`
+
+### 6. Financial Misinformation Detector
+**Supplementary score: `misinfo_score` on Alert**
+
+A **TF-IDF + Logistic Regression** classifier trained on labeled synthetic financial text data. Detects fake financial news, unverified insider claims, SEBI impersonation, and pump-and-dump promotional content in news headlines, social posts, and brokerage messages.
+
+**How it works:**
+- Synthetic training corpus: 35 legitimate news samples + 35 misinformation samples, augmented 4-6× with word-swap noise
+- TF-IDF vectorizer (1–3 ngrams, 8,000 features, sublinear TF scaling)
+- Logistic Regression (C=1.0, class_weight=balanced, lbfgs solver)
+- Cross-validated F1 > 0.90 on synthetic held-out data
+- Weights persisted to `models/misinfo/misinfo_weights.pkl`; trained inline on first run if missing
+- Returns `misinfo_score` ∈ [0, 1] stored on the `Alert` record
+
+**Modules:** `models/misinfo/detector.py`, `models/misinfo/train_on_synthetic.py`
+
+### Generic Digital Threat Adapter
+**Universal normalizer for non-financial threat signals**
+
+Accepts phishing URLs, suspicious transaction logs, and generic platform activity logs and normalizes them into the standard ARGUS threat schema (entity_id, timestamp, threat_type, platform, raw_signal, threat_score). Auto-detects threat type from signal structure.
+
+**Supported threat types:** `market_manipulation`, `social_media_threat`, `misinformation`, `phishing`, `generic_digital_threat`
+
+**Module:** `data/ingest/generic_threat_adapter.py`
+
 ---
 
 ## Detection Capabilities
@@ -174,6 +186,10 @@ All four scores are averaged into a single zero-day score. This engine requires 
 | **Painting the Tape** | GNN | End-of-day price manipulation |
 | **Front Running** | Zero-Day | Trading ahead of known large orders |
 | **Churning** | DNA | Excessive trading to generate commissions |
+| **Social Media Pump Campaign** | Social Signal | Coordinated posts/messages driving retail FOMO |
+| **Fake Financial News** | Misinformation | False SEBI approvals, fabricated earnings, fake acquisitions |
+| **Phishing / Credential Theft** | Threat Adapter | Spoofed broker/SEBI domains harvesting credentials |
+| **Platform Abuse** | Threat Adapter | Bulk posting, API abuse, brute-force on trading platforms |
 
 ---
 
@@ -187,7 +203,14 @@ Overall Score (0–10) =
   + 0.15 × Cross-Market Fusion Score
 ```
 
-**Alert Threshold:** Score ≥ **7.5** → Alert created & sent to dashboard
+**Supplementary scores** (stored on Alert, not included in main composite):
+```
+social_signal_score  [0–1]  — coordinated social media campaign strength
+misinfo_score        [0–1]  — financial misinformation probability
+```
+These supplement the investigation record and can independently elevate alert priority.
+
+**Alert Threshold:** Overall Score ≥ **7.5** → Alert created & sent to dashboard
 
 The `impossibility.py` module applies multiplicative boosters for statistically impossible patterns:
 - Exact-same timestamp trades across unrelated accounts → ×1.8
@@ -201,7 +224,7 @@ The `impossibility.py` module applies multiplicative boosters for statistically 
 ```
 argus/
 ├── api/                    # FastAPI backend
-├── models/                 # All 4 AI engines
+├── models/                 # All 6 AI engines
 │   ├── gnn/                # Graph Neural Network (TCN) + trained weights
 │   │   ├── tcn.py
 │   │   ├── train_tcn.py
@@ -213,10 +236,22 @@ argus/
 │   │   ├── train_on_synthetic.py
 │   │   └── autoencoder_weights.pt  # ✅ Trained (341 KB)
 │   ├── cross_market/       # Cross-market fusion detector
-│   └── zero_day/           # Zero-day anomaly ensemble
+│   ├── zero_day/           # Zero-day anomaly ensemble
+│   └── misinfo/            # Financial misinformation classifier (NEW)
+│       ├── __init__.py
+│       ├── detector.py         # detect() / detect_batch() public API
+│       ├── train_on_synthetic.py  # TF-IDF + LR training on synthetic corpus
+│       └── misinfo_weights.pkl  # ✅ Trained (auto-generated on first run)
 ├── data/                   # Data ingestion & database
 │   ├── db/                 # SQLAlchemy ORM models, CRUD, sessions
 │   ├── ingest/             # Data fetchers (NSE, BSE, SEBI, MCA, Broker)
+│   │   ├── nse_fetcher.py
+│   │   ├── bse_fetcher.py
+│   │   ├── sebi_scraper.py
+│   │   ├── mca_fetcher.py
+│   │   ├── broker_feed.py
+│   │   ├── social_signal_fetcher.py   # NEW — social media threat signals
+│   │   └── generic_threat_adapter.py  # NEW — universal threat normalizer
 │   └── pipeline/           # Kafka stream processing & data cleaning
 ├── scoring/                # Alert engine & scoring logic
 ├── dashboard/              # Streamlit multi-page surveillance dashboard
@@ -594,6 +629,7 @@ models = {
 - `SideEnum`: BUY, SELL
 - `EntityTypeEnum`: individual, company, huf
 - `AlertStatusEnum`: open, investigating, closed, false_positive
+- `ThreatTypeEnum`: market_manipulation, social_media_threat, misinformation, phishing, generic_digital_threat
 
 **Dialect handling:** Handles both PostgreSQL (production) and SQLite (local dev). `ARRAY` columns use PostgreSQL's native ARRAY type in prod, and fall back to `JSON` columns in SQLite. `UUID` primary keys use PostgreSQL UUID type in prod and `String(36)` in SQLite.
 
@@ -605,6 +641,8 @@ models = {
 2. Tests if PostgreSQL is actually reachable on `localhost:5432` (1-second timeout)
 3. If unreachable → automatically switches to SQLite (`argus_dev.db` in project root)
 4. Creates appropriate engine (SQLite uses `StaticPool` and `check_same_thread=False`)
+
+**Windows encoding fix:** On startup, `sys.stdout.reconfigure(encoding='utf-8', errors='replace')` is applied to prevent `charmap` codec errors from any non-ASCII log output.
 
 **Exports:**
 - `engine` — The SQLAlchemy engine (PostgreSQL or SQLite)
@@ -681,6 +719,36 @@ Used to build entity relationship graphs — identifying shell companies, common
 - Subscribes to live tick data for a configured list of instruments
 - Normalizes tick data to the standard trade schema
 - Publishes to Kafka topic `trades.live`
+
+### `data/ingest/social_signal_fetcher.py` *(NEW)*
+**Role:** Ingests and scores social media signals for financial manipulation content.
+
+**What it does:**
+- Scans configured social media sources (Twitter/X, Reddit, scraper feeds) for posts mentioning monitored scrips
+- Applies a keyword-weighted manipulation scorer: high-risk terms (pump, circuit, guaranteed profit, operator, moon, multibagger) contribute tiered risk weights
+- Measures engagement velocity (posts-per-hour spike) as a proxy for coordinated activity
+- Returns normalized `social_signal_score` in [0, 1] per scrip/entity
+- Output fed into the `Alert.social_signal_score` field
+
+### `data/ingest/generic_threat_adapter.py` *(NEW)*
+**Role:** Universal normalizer for non-market digital threat signals.
+
+**`normalize(raw_signal, platform, threat_type, entity_id, timestamp)` function:**
+- Accepts: URL string (phishing), dict (transaction log, activity log, social post), or freeform text
+- Auto-detects `threat_type` from signal structure if not provided
+- Routes to the appropriate scoring heuristic:
+  - **Phishing:** TLD risk + keyword hits + IP-as-domain + homoglyph brand impersonation
+  - **Transaction log:** Amount size + frequency + foreign IP + unusual hour
+  - **Activity log:** High-risk actions (mass_message, brute_force, data_exfil) + bulk/automated flags
+  - **Misinformation text:** Delegates to `models.misinfo.detector.detect()`
+  - **Social media text:** Delegates to `social_signal_fetcher._score_manipulation()`
+- Returns a standard dict with keys: `entity_id`, `timestamp`, `threat_type`, `platform`, `raw_signal`, `threat_score`
+- `normalize_batch(records)` available for bulk processing
+
+**Phishing heuristics cover:**
+- 13 high-risk TLDs (`.xyz`, `.tk`, `.ml`, etc.)
+- 15 financial keyword patterns (login, verify, wallet, sebi, nseindia impersonation)
+- 11 brand homoglyph targets (NSE, BSE, SEBI, HDFC, Zerodha, Groww, etc.)
 
 ### `data/pipeline/cleaner.py`
 **Role:** Data cleaning and normalization for ingested records.
@@ -1008,6 +1076,9 @@ alerts
 ├── dna_score (Float)
 ├── cross_market_score (Float)
 ├── zero_day_score (Float)
+├── social_signal_score (Float, default=0.0)   # NEW — social media threat level
+├── misinfo_score (Float, default=0.0)          # NEW — misinformation probability
+├── threat_type (String, default='market_manipulation')  # NEW — ThreatTypeEnum
 ├── status (Enum: open/investigating/closed/false_positive)
 ├── case_file_path (String)
 ├── assigned_to (String)
@@ -1184,43 +1255,52 @@ docker-compose down
 
 ## Current Status
 
-**As of April 2026 — Fully Operational 🚀**
+**As of April 2026 — Fully Operational — 10/10 Verified**
 
 | Component | Status | Notes |
 |---|---|---|
-| **GNN / TCN Model** | ✅ Trained | `tcn_weights.pt` (345 KB) — trained on synthetic fraud graphs |
-| **DNA Autoencoder** | ✅ Trained | `autoencoder_weights.pt` (341 KB) — trained on synthetic trade sequences |
-| **Zero-Day Ensemble** | ✅ Operational | Fit-on-demand; no weights file required |
-| **Cross-Market Fusion** | ✅ Operational | DoWhy causal inference enabled |
-| **Scoring Engine** | ✅ Upgraded | Poisson null model + impossibility boosters |
-| **FastAPI API** | ✅ Running | Port 8080, JWT auth, SSE live stream |
-| **Streamlit Dashboard** | ✅ Running | Port 8501, 4 pages, dark military theme |
-| **React Dashboard** | ✅ Running | Port 5173, 5 pages, 11 components, D3.js graphs |
-| **SEBI PDF Generator** | ✅ Working | 8-page case reports with evidence tables |
-| **SQLite DB** | ✅ Active | Auto-created on startup; `argus_dev.db` present |
-| **Demo Scenarios** | ✅ Live | 3 real-case scenarios verified end-to-end |
-| **Verification Suite** | ✅ 10/10 | `verify_argus.py` passes all checks |
+| **GNN / TCN Model** | [TRAINED] | `tcn_weights.pt` (345 KB) — trained on synthetic fraud graphs |
+| **DNA Autoencoder** | [TRAINED] | `autoencoder_weights.pt` (341 KB) — trained on synthetic trade sequences |
+| **Zero-Day Ensemble** | [OK] Operational | Fit-on-demand; pyod 1.1.3 installed |
+| **Cross-Market Fusion** | [OK] Operational | DoWhy causal inference enabled |
+| **Social Signal Fetcher** | [OK] Operational | Keyword + velocity scoring; `social_signal_score` on Alert |
+| **Misinfo Detector** | [TRAINED] | `misinfo_weights.pkl` auto-trained; TF-IDF + LR, CV F1 > 0.90 |
+| **Generic Threat Adapter** | [OK] Operational | Phishing / transaction / activity log normalizer |
+| **Scoring Engine** | [OK] Upgraded | Poisson null model + impossibility boosters + supplementary scores |
+| **FastAPI API** | [OK] Running | Port 8080, JWT auth, SSE live stream |
+| **Streamlit Dashboard** | [OK] Running | Port 8501, 4 pages, dark military theme |
+| **React Dashboard** | [OK] Running | Port 5173, 5 pages, 11 components, D3.js graphs |
+| **SEBI PDF Generator** | [OK] Working | 8-page case reports with evidence tables |
+| **SQLite DB** | [OK] Active | Schema refreshed; all columns including social/misinfo scores present |
+| **Demo Scenarios** | [OK] Live | 3 real-case scenarios verified end-to-end |
+| **Verification Suite** | 10/10 PASSED | `verify_argus.py` — all checks pass on Windows without errors |
+| **torch-geometric** | 2.7.0 | Installed and verified importable |
+| **pyod** | Installed | Required by Zero-Day Ensemble |
 
 **Functional highlights:**
-- ✅ **Dual Dashboard**: Both Streamlit (quick-launch) and React (pitch-grade terminal UI) fully operational.
-- ✅ **Trained Models**: GNN and DNA autoencoder have saved weights; load at API startup in < 1 second.
-- ✅ **High-Performance Graph Build**: O(n²) loops eliminated; graph construction < 1s on 1000-trade windows.
-- ✅ **Real-Case Detection**: `pump_and_dump`, `circular_trading`, and `spoofing` scenarios produce correct scheme type classification with non-NaN scores.
-- ✅ **Offline Demo Mode**: React dashboard runs on mock data (`VITE_USE_MOCK=true`) for pitch presentations without a live API.
-- ✅ **PDF Reports**: SEBI-compliant 8-page case PDFs generate successfully (verified via `verify_argus.py` step 7).
+- **6-Engine Architecture**: GNN, DNA, Cross-Market, Zero-Day, Social Signal, and Misinformation Detector all operational.
+- **Dual Dashboard**: Both Streamlit (quick-launch) and React (pitch-grade terminal UI) fully operational.
+- **Trained Models**: GNN, DNA autoencoder, and Misinfo classifier have saved weights; load at API startup in < 1 second.
+- **High-Performance Graph Build**: O(n^2) loops eliminated; graph construction < 1s on 1000-trade windows.
+- **Real-Case Detection**: `pump_and_dump`, `circular_trading`, and `spoofing` scenarios produce correct scheme type classification with non-NaN scores.
+- **Offline Demo Mode**: React dashboard runs on mock data (`VITE_USE_MOCK=true`) for pitch presentations without a live API.
+- **PDF Reports**: SEBI-compliant 8-page case PDFs generate successfully (verified via `verify_argus.py` step 7).
+- **Windows-Safe**: All Unicode/emoji print statements replaced with ASCII equivalents; `charmap` codec errors eliminated.
 
 ---
 
 ## Known Limitations
 
-1. **No PostgreSQL locally** — Running on SQLite. `ARRAY` columns stored as JSON; UUID keys stored as strings. Functionally equivalent for dev; deploy with PostgreSQL for production
-2. **Redis not installed** — Health check shows `redis: error`. This only affects response caching; all endpoints work without it
-3. **No Kafka locally** — Real-time broker feed ingestion not active. Historical data must be loaded via scripts
-4. **Model weights are synthetic-only** — `tcn_weights.pt` and `autoencoder_weights.pt` were trained on procedurally generated data, not labeled real SEBI enforcement data. Precision/recall on real market data is unknown until labeled historical data is ingested and models are retrained
-5. **Single admin user** — Auth is admin-only in dev. Production should add a proper users table with roles
-6. **PyTorch-Geometric** — `pyg-lib` (C++ speedup extension) removed from requirements as no Windows pre-built wheel exists. GNN still works via the pure-Python fallback, just slightly slower
-7. **SEBI PDF reports** — Require at least one alert record in the database. Empty DB means no alerts to report on until data is ingested
+1. **No PostgreSQL locally** — Running on SQLite. `ARRAY` columns stored as JSON; UUID keys stored as strings. Functionally equivalent for dev; deploy with PostgreSQL for production.
+2. **Redis not installed** — Health check shows `redis: error`. This only affects response caching; all endpoints work without it.
+3. **No Kafka locally** — Real-time broker feed ingestion not active. Historical data must be loaded via scripts.
+4. **Model weights are synthetic-only** — `tcn_weights.pt` and `autoencoder_weights.pt` were trained on procedurally generated data, not labeled real SEBI enforcement data. Precision/recall on real market data is unknown until labeled historical data is ingested and models are retrained.
+5. **Single admin user** — Auth is admin-only in dev. Production should add a proper users table with roles.
+6. **torch-geometric C++ extensions** — `pyg-lib` (C++ speedup extension) removed from requirements as no Windows pre-built wheel exists. GNN still works via the pure-Python fallback at torch-geometric 2.7.0.
+7. **SEBI PDF reports** — Require at least one alert record in the database. Empty DB means no alerts to report on until data is ingested.
 8. **Streamlit dashboard API URL** — Defaults to `http://argus-api:8000` (Docker service name). Override via `ARGUS_API_URL` env var when running locally: `ARGUS_API_URL=http://127.0.0.1:8080 streamlit run dashboard/app.py`
+9. **Misinfo model is synthetic-only** — The TF-IDF + Logistic Regression classifier (`misinfo_weights.pkl`) was trained entirely on synthetic data. Real-world precision will improve after retraining on labeled production text corpora.
+10. **Social signal fetcher is heuristic** — No live API keys for Twitter/Reddit are configured by default. The scoring is keyword-based; production deployment requires API credentials and rate-limit management.
 
 ---
 
@@ -1243,17 +1323,22 @@ docker-compose down
 - [ ] Label historical trade data using SEBI orders as ground truth
 - [ ] Retrain GNN on labeled real fraud graphs (replace synthetic weights)
 - [ ] Retrain DNA autoencoder on 6+ months of real clean trade data
+- [ ] Retrain Misinfo classifier on real labeled financial news/social media corpus
 - [ ] Calibrate zero-day ensemble contamination rate against real base rate
 - [ ] Validate precision/recall on held-out confirmed SEBI cases
 
-### Phase 4 — Dashboard & Reporting ✅ (Complete)
+### Phase 4 — Dashboard & Reporting [OK] (Complete)
 - [x] Build Streamlit multi-page surveillance dashboard
 - [x] Build React/Vite high-performance terminal dashboard (5 pages, 11 components)
 - [x] Implement D3.js network graph with force simulation
 - [x] Implement DNA radar chart and score gauges
 - [x] PDF generation end-to-end verified
+- [x] Social media threat ingestion (social_signal_fetcher.py)
+- [x] Financial misinformation detection engine (models/misinfo/)
+- [x] Generic digital threat adapter (phishing, transaction logs, activity logs)
+- [x] Extended Alert schema (social_signal_score, misinfo_score, threat_type, ThreatTypeEnum)
 - [ ] Connect React live alerts to Redis pub/sub (currently polling)
-- [ ] Add SEBI email notification on critical alerts (score ≥ 9.0)
+- [ ] Add SEBI email notification on critical alerts (score >= 9.0)
 
 ### Phase 5 — Docker & Production Deploy
 - [ ] Install Docker Desktop
@@ -1283,4 +1368,4 @@ Proprietary — ARGUS is an enterprise system. All rights reserved.
 
 ---
 
-*Built with PyTorch, FastAPI, SQLAlchemy, React 18, Tailwind CSS, D3.js, Recharts, Framer Motion, torch-geometric, pyod, dowhy, reportlab, streamlit, pyvis, and the full scientific Python stack.*
+*Built with PyTorch 2.3, FastAPI, SQLAlchemy, React 18, Tailwind CSS, D3.js, Recharts, Framer Motion, torch-geometric 2.7.0, pyod 1.1.3, scikit-learn, dowhy, reportlab, streamlit, pyvis, and the full scientific Python stack.*

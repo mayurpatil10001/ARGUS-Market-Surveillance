@@ -12,7 +12,7 @@ from sqlalchemy import and_, desc, func
 
 from data.db.models import (
     Trade, Account, Entity, Alert, SEBICase, KnownFraudster,
-    AlertStatusEnum,
+    AlertStatusEnum, ThreatTypeEnum,
 )
 
 
@@ -141,6 +141,7 @@ def get_alerts(
     scrip: Optional[str] = None,
     from_dt: Optional[datetime] = None,
     to_dt: Optional[datetime] = None,
+    threat_type: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Alert]:
@@ -155,6 +156,8 @@ def get_alerts(
         q = q.filter(Alert.detected_at >= from_dt)
     if to_dt:
         q = q.filter(Alert.detected_at <= to_dt)
+    if threat_type:
+        q = q.filter(Alert.threat_type == threat_type)
     return q.order_by(desc(Alert.impossibility_score)).offset(offset).limit(limit).all()
 
 

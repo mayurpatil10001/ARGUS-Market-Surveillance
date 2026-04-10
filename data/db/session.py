@@ -6,6 +6,14 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
+
+# Windows: ensure stdout can handle non-ASCII without crashing
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
@@ -35,7 +43,7 @@ if _USE_SQLITE:
         poolclass=StaticPool,
         echo=False,
     )
-    print(f"[ARGUS] ⚠️  Using SQLite dev DB: {DATABASE_URL}")
+    print(f"[ARGUS] [DEV] Using SQLite dev DB: {DATABASE_URL}")
 else:
     DATABASE_URL = _raw_url
     engine = create_engine(
@@ -45,7 +53,7 @@ else:
         max_overflow=20,
         echo=False,
     )
-    print(f"[ARGUS] ✅ Using PostgreSQL: {DATABASE_URL}")
+    print(f"[ARGUS] [OK] Using PostgreSQL: {DATABASE_URL}")
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

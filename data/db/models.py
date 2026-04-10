@@ -72,6 +72,14 @@ class AlertStatusEnum(str, enum.Enum):
     false_positive = "false_positive"
 
 
+class ThreatTypeEnum(str, enum.Enum):
+    market_manipulation = "market_manipulation"
+    social_media_threat = "social_media_threat"
+    misinformation = "misinformation"
+    phishing = "phishing"
+    generic_digital_threat = "generic_digital_threat"
+
+
 class Trade(Base):
     __tablename__ = "trades"
 
@@ -128,6 +136,9 @@ class Alert(Base):
     dna_score = Column(Float, nullable=False, default=0.0)
     cross_market_score = Column(Float, nullable=False, default=0.0)
     zero_day_score = Column(Float, nullable=False, default=0.0)
+    social_signal_score = Column(Float, nullable=False, default=0.0)
+    misinfo_score = Column(Float, nullable=False, default=0.0)
+    threat_type = Column(String, nullable=False, default="market_manipulation")
     status = Column(Enum(AlertStatusEnum), nullable=False, default=AlertStatusEnum.open)
     case_file_path = Column(String, nullable=True)
     assigned_to = Column(String, nullable=True)

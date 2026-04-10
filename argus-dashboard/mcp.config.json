@@ -1,0 +1,18 @@
+{
+    "mcpServers": {
+        "stitch": {
+            "command": "npx",
+            "args": [
+                "@_davideast/stitch-mcp",
+                "proxy"
+            ]
+        },
+        "next-devtools": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "next-devtools-mcp@latest"
+            ]
+        }
+    }
+}

@@ -1,6 +1,9 @@
 # === Secrets ===
-.env.prod
 .env
+.env.prod
+.env.production
+.env.local
+.env.*.local
 nginx/ssl/*.crt
 nginx/ssl/*.key
 nginx/ssl/*.pem

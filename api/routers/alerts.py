@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from api.auth import get_current_user
+from api.auth import get_current_user, get_current_user_sse
 from api.schemas import (
     AlertOut, AlertStatusUpdate, AlertAssign,
     MitigationApplyRequest, MitigationDismissRequest,
@@ -63,7 +63,7 @@ async def list_alerts(
 @router.get("/live")
 async def live_alerts(
     db: Session = Depends(get_db),
-    _user: dict = Depends(get_current_user),
+    _user: dict = Depends(get_current_user_sse),
 ):
     """SSE stream of new alerts. Polls DB every 5 seconds."""
     async def event_generator() -> AsyncGenerator[str, None]:

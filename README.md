@@ -5,11 +5,13 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.111-green)](https://fastapi.tiangolo.com)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.3.0-orange)](https://pytorch.org)
 [![torch-geometric](https://img.shields.io/badge/torch--geometric-2.5.3-red)](https://pyg.org)
 [![boto3](https://img.shields.io/badge/boto3-%3E%3D1.34-yellow)](https://boto3.amazonaws.com)
 [![License](https://img.shields.io/badge/License-Proprietary-red)](#)
 [![Status](https://img.shields.io/badge/Status-29%2F29%20Verified-brightgreen)](#current-status)
+[![Version](https://img.shields.io/badge/Version-v2.4.1-blue)](#current-status)
 
 ---
 
@@ -27,7 +29,8 @@
    - [Data Layer (`data/`)](#data-layer-data)
    - [Scoring Engine (`scoring/`)](#scoring-engine-scoring)
    - [Streamlit Dashboard (`dashboard/`)](#streamlit-dashboard-dashboard)
-   - [React Dashboard (`argus-dashboard/`)](#react-dashboard-argus-dashboard)
+   - [Legacy React Dashboard (`argus-dashboard/`)](#legacy-react-dashboard-argus-dashboard)
+   - [Next.js Dashboard (`argus-main/`)](#nextjs-dashboard-argus-main)
    - [Reports (`reports/`)](#reports-reports)
    - [Database Migrations (`alembic/`)](#database-migrations-alembic)
    - [Tests (`tests/`)](#tests-tests)
@@ -35,14 +38,15 @@
    - [Infrastructure (`infra/`)](#infrastructure-infra)
 7. [Database Schema](#database-schema)
 8. [PS-402 Ingestion API](#ps-402-ingestion-api)
-9. [Data Sources](#data-sources)
-10. [API Reference](#api-reference)
-11. [Quick Start — Local Dev](#quick-start--local-dev)
-12. [Docker Deployment](#docker-deployment)
-13. [AWS Deployment](#aws-deployment)
-14. [Current Status](#current-status)
-15. [Known Limitations](#known-limitations)
-16. [Roadmap](#roadmap)
+9. [Document Threat Analyzer](#document-threat-analyzer)
+10. [Data Sources](#data-sources)
+11. [API Reference](#api-reference)
+12. [Quick Start — Local Dev](#quick-start--local-dev)
+13. [Docker Deployment](#docker-deployment)
+14. [AWS Deployment](#aws-deployment)
+15. [Current Status](#current-status)
+16. [Known Limitations](#known-limitations)
+17. [Roadmap](#roadmap)
 
 ---
 
@@ -56,10 +60,11 @@ It combines **7 independent AI engines** — graph neural networks, behavioral b
 - Detect pump & dump, spoofing, layering, circular trading, and insider trading signals
 - Ingest and score threats from social media, news, phishing URLs, and generic platform activity
 - Detect coordinated financial misinformation and market-moving fake news
+- Analyze uploaded documents (PDF/DOCX/TXT) for financial threats via the Document Threat Analyzer (PS-402 pipeline)
 - Analyze text, PDF, TXT, CSV, and DOCX documents for financial threats (MRFE engine)
 - Run full-pipeline stress tests with 5 synthetic threat scenarios (Simulation Engine)
 - Generate SEBI-compliant case reports with evidence automatically; upload to S3 with presigned URLs
-- Provide real-time surveillance dashboards (React + Streamlit) for market regulators
+- Provide real-time surveillance dashboards (Next.js 16 + Streamlit + Legacy React) for market regulators
 - Build behavioral DNA fingerprints of traders to identify repeat offenders
 - Deploy to AWS with full infrastructure-as-code (Terraform) and zero-downtime CI/CD
 
@@ -68,24 +73,25 @@ It combines **7 independent AI engines** — graph neural networks, behavioral b
 ## System Architecture
 
 ```
-                ┌─────────────┼──────────────────┐
-                │             │                  │
-       ┌────────▼────────┐    │         ┌────────▼────────┐
-       │   FastAPI API   │    │         │  React/Vite UI  │
-       │   api/main.py   │    │         │ argus-dashboard/│
-       │   Port 8080     │    │         │   Port 5173     │
-       └────────┬────────┘    │         └─────────────────┘
-                │     ┌───────▼──────────┐
-       ┌────────▼────┐│ Streamlit UI     │
-       │  PDF Reports││ dashboard/app.py │
-       │reports/pdf_ ││ Port 8501        │
+                ┌───────────────────┬────────────────────────┐
+                │                   │                        │
+       ┌────────▼────────┐  ┌───────▼──────────┐  ┌─────────▼──────────┐
+       │   FastAPI API   │  │  Next.js 16 UI   │  │  React/Vite UI     │
+       │   api/main.py   │  │  argus-main/     │  │  argus-dashboard/  │
+       │   Port 8000     │  │  Port 3000       │  │  Port 5173         │
+       └────────┬────────┘  └──────────────────┘  └────────────────────┘
+                │     ┌───────────────────┐
+       ┌────────▼────┐│  Streamlit UI     │
+       │  PDF Reports││  dashboard/app.py │
+       │reports/pdf_ ││  Port 8501        │
        │generator.py ││                  │
        └─────────────┘└──────────────────┘
 ```
 
-**5 Routers:** `/alerts` (+ simulate), `/accounts`, `/reports`, `/ps402`, `/mrfe`  
+**5 Routers:** `/alerts` (+ simulate), `/accounts`, `/reports`, `/ps402` (+ analyze-document), `/mrfe`  
 **2 DB tables:** `alerts` (30+ cols), `market_signals` (14 cols)  
-**7 AI engines** loaded at startup via FastAPI lifespan context manager
+**7 AI engines** loaded at startup via FastAPI lifespan context manager  
+**2 React frontends:** Next.js 16 (`argus-main/`) — primary pitch dashboard; Vite/React (`argus-dashboard/`) — terminal-style legacy UI
 
 ---
 
@@ -257,7 +263,7 @@ argus/
 │       ├── alerts.py         # GET/POST /alerts + SSE + /simulate endpoints
 │       ├── accounts.py       # Account DNA, trades, network graph
 │       ├── reports.py        # PDF generation, weekly summary
-│       ├── ps402.py          # 5 endpoints under /ps402
+│       ├── ps402.py          # ✅ 6 endpoints under /ps402 (incl. analyze-document)
 │       └── mrfe.py           # ✅ 3 endpoints under /mrfe (text, file, status)
 ├── models/                   # All AI engines
 │   ├── gnn/                  # Graph Neural Network (TCN)
@@ -315,7 +321,7 @@ argus/
 │       ├── mitigation_center.py  # ✅ RUN SIMULATION panel + results table
 │       ├── ps402_signals.py      # PS-402 digital threat signal page
 │       └── mrfe_analysis.py      # ✅ MRFE Analysis page (text + file tabs)
-├── argus-dashboard/          # React/Vite terminal dashboard (Port 5173)
+├── argus-dashboard/          # [Legacy] React/Vite terminal dashboard (Port 5173)
 │   └── src/
 │       ├── App.jsx           # Router: 8 pages
 │       ├── pages/            # 8 pages
@@ -334,6 +340,40 @@ argus/
 │       │   ├── Sidebar.jsx, ThreatBadge.jsx, TopBar.jsx
 │       └── api/
 │           └── client.js     # Axios + shape-normalisation adapter
+├── argus-main/               # ✅ NEW — Next.js 16 + React 19 + TailwindCSS v4 dashboard (Port 3000)
+│   ├── app/
+│   │   ├── (dashboard)/
+│   │   │   ├── alerts/           # Live Alerts page
+│   │   │   ├── accounts/         # Account DNA page
+│   │   │   ├── network/          # Network View page
+│   │   │   ├── ps402/            # PS-402 Signals page
+│   │   │   ├── analyzer/         # ✅ Document Threat Analyzer (drag-and-drop)
+│   │   │   ├── cases/            # Case Builder page
+│   │   │   ├── summary/          # Weekly Summary page
+│   │   │   ├── mitigation/       # Mitigation Center page
+│   │   │   └── reports/          # Reports page
+│   │   └── globals.css           # TailwindCSS v4 global styles
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── Sidebar.tsx       # Collapsible sidebar + engine status dots
+│   │   │   ├── TopBar.tsx        # Top navigation bar
+│   │   │   └── DashboardShell.tsx
+│   │   ├── analyzer/
+│   │   │   ├── upload-box.tsx    # Drag-and-drop file upload component
+│   │   │   └── result-card.tsx   # Threat score result visualization
+│   │   ├── ui/                   # shadcn/ui component library
+│   │   ├── ps402/                # PS-402 signal components
+│   │   └── reports/              # Report display components
+│   ├── lib/
+│   │   ├── api/
+│   │   │   └── analyzer.ts       # analyzeDocument() → POST /ps402/analyze-document
+│   │   └── mock/
+│   │       └── mock-data.ts      # NAV_ITEMS, ENGINES, MOCK_ALERTS, ALERT_STATS
+│   ├── store/                    # Global state
+│   ├── types/
+│   │   └── argus.ts              # Alert, NavItem, EngineInfo, EngineStatus types
+│   ├── package.json              # Next 16.1.7, React 19.2.4, shadcn, tailwindcss v4
+│   └── next.config.mjs
 ├── reports/
 │   └── pdf_generator.py      # 8-section SEBI PDF + S3 upload → presigned URL
 ├── alembic/
@@ -625,12 +665,13 @@ Key endpoints:
 - `GET /reports/summary/weekly` — 7-day alert statistics
 
 ### `api/routers/ps402.py`
-**PS-402 Digital Threat Ingestion layer:**
+**PS-402 Digital Threat Ingestion layer (6 endpoints):**
 - `POST /ps402/ingest/url` — Score a URL for phishing/threat + persist MarketSignal
 - `POST /ps402/ingest/social` — Score a social post + persist MarketSignal
 - `POST /ps402/ingest/batch` — Mixed batch of URLs + posts
 - `GET /ps402/signals` — List market signals (filterable, paginated)
 - `GET /ps402/summary` — 7-day digital threat summary stats
+- **`POST /ps402/analyze-document`** ✅ **NEW v2.4** — Upload PDF/DOCX/TXT, extract text, run through PS-402 social pipeline + mitigation engine; returns `threat_score`, `misinfo_score`, `scrips_detected`, `is_malicious`, `severity`, `recommended_action`
 
 ### `api/routers/mrfe.py` ✅ v2.1
 **Market Reaction Fingerprint Engine endpoints:**
@@ -775,7 +816,35 @@ All results are labeled `synthetic_data_used: true`. Access via `POST /alerts/si
 
 ---
 
-## React Dashboard (`argus-dashboard/`)
+## Next.js Dashboard (`argus-main/`)
+
+**Port:** 3000 | **Pages:** 9 | **Stack:** Next.js 16.1.7, React 19.2.4, TailwindCSS v4, shadcn/ui  
+**Version:** v2.4.1 (shown in sidebar) | **Theme:** Dark zinc/cyan terminal aesthetic
+
+The **primary pitch dashboard** — a modern, production-grade Next.js App Router frontend with server components, collapsible sidebar navigation, live engine status indicators, and full TypeScript typing.
+
+| Page | Route | Key Features |
+|---|---|---|
+| Live Alerts | `/alerts` | Alert table with severity badges, score display |
+| Account DNA | `/accounts` | DNA fingerprint visualization, fraudster matching |
+| Network View | `/network` | Network graph explorer |
+| PS-402 Signals | `/ps402` | Digital threat signals table |
+| **Document Analyzer** | **`/analyzer`** | ✅ **Drag-and-drop upload** (PDF/DOCX/TXT), Run Threat Analysis button, `ResultCard` with scores + scrip list + mitigation action |
+| Case Builder | `/cases` | SEBI PDF case generation |
+| Weekly Summary | `/summary` | 7-day statistics |
+| Mitigation Center | `/mitigation` | Mitigation triage dashboard |
+| Reports | `/reports` | Report browsing and download |
+
+**Key components:**
+- `Sidebar` — Collapsible (60px / 240px) with engine status dots (GNN / DNA / Zero-Day / Cross-Mkt) and version badge
+- `TopBar` — Session context and navigation controls
+- `upload-box.tsx` — Drag-and-drop file zone for Document Analyzer
+- `result-card.tsx` — Threat result display (scores, scrips detected, severity badge, recommended action)
+- shadcn/ui component library (radix-ui primitives)
+
+---
+
+## Legacy React Dashboard (`argus-dashboard/`)
 
 **Port:** 5173 | **Pages:** 8 | **Components:** 12 | **Theme:** Bloomberg Terminal (dark, monospace, cyan accent)
 
@@ -1018,6 +1087,65 @@ Content-Type: application/json
 
 ---
 
+## Document Threat Analyzer
+
+**New in v2.4** — End-to-end document threat analysis via upload.
+
+### Backend: `POST /ps402/analyze-document`
+
+Accepts PDF, DOCX, or TXT file uploads via `multipart/form-data`. Internally:
+1. Extracts text using `pdfplumber` (PDF), `python-docx` (DOCX), or direct decode (TXT)
+2. Runs extracted text through `ingest_social_post()` — the PS-402 social pipeline (misinfo detector + social signal fetcher + generic threat adapter)
+3. Scores misinformation probability (`misinfo_score`) and overall threat level (`threat_score`)
+4. Queries `MitigationEngine.recommend()` for a severity + `recommended_action`
+5. Returns JSON with detection results
+
+```http
+POST /ps402/analyze-document
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+file=@suspect_doc.pdf
+```
+
+**Response:**
+```json
+{
+  "filename": "suspect_doc.pdf",
+  "threat_score": 0.74,
+  "misinfo_score": 0.68,
+  "threat_type": "misinformation",
+  "scrips_detected": ["RELIANCE", "XYZLTD"],
+  "is_malicious": true,
+  "severity": "high",
+  "recommended_action": "flag_content_and_notify_exchange"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `filename` | string | Original uploaded filename |
+| `threat_score` | float [0–1] | Combined PS-402 threat signal |
+| `misinfo_score` | float [0–1] | Financial misinformation probability |
+| `threat_type` | string | `misinformation` / `generic_digital_threat` / `low_risk_document` |
+| `scrips_detected` | list[str] | NSE scrip tickers extracted from document |
+| `is_malicious` | bool | `true` if `threat_score ≥ 0.60` |
+| `severity` | string | `critical` / `high` / `medium` / `low` |
+| `recommended_action` | string | Mitigation action from MitigationEngine |
+
+### Frontend: Document Analyzer page (`/analyzer`)
+
+Located at `argus-main/app/(dashboard)/analyzer/page.tsx`. Features:
+- **`UploadBox`** — Drag-and-drop zone for PDF/DOCX/TXT files
+- **Run Threat Analysis** button — disabled until file selected, shows spinner during analysis
+- **`ResultCard`** — Displays all 7 response fields with color-coded severity badge
+- **Error handling** — Shows API error messages inline
+- **Reset flow** — "Analyze another" link clears state for next document
+
+API integration via `argus-main/lib/api/analyzer.ts` → `analyzeDocument(file)` → `POST /ps402/analyze-document`.
+
+---
+
 ## Data Sources
 
 | Source | Module | Data Type |
@@ -1081,8 +1209,9 @@ All subsequent requests: `Authorization: Bearer <token>`
 | **POST** | **`/mrfe/analyze/text`** | ✅ | **MRFE: Analyze text for financial threats** |
 | **POST** | **`/mrfe/analyze/file`** | ✅ | **MRFE: Analyze uploaded PDF/TXT/CSV/DOCX (max 10 MB)** |
 | **GET** | **`/mrfe/status`** | ❌ | **MRFE: Engine status & model availability** |
+| **POST** | **`/ps402/analyze-document`** | ✅ | **PS-402: Upload PDF/DOCX/TXT → threat + misinfo scores + mitigation action** |
 
-**Total: 31 endpoints** across 5 routers.
+**Total: 32 endpoints** across 5 routers.
 
 ---
 
@@ -1115,7 +1244,13 @@ python -m uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 # 8. Start Streamlit dashboard (separate terminal)
 streamlit run dashboard/app.py
 
-# 9. Start React dashboard (separate terminal)
+# 9. Start Next.js dashboard — primary pitch UI (separate terminal)
+cd "d:\Argus for LR\argus-main"
+npm install
+npm run dev
+# http://localhost:3000
+
+# 10. [Optional] Start legacy Vite/React dashboard (separate terminal)
 cd argus-dashboard
 npm install
 npm run dev
@@ -1292,9 +1427,11 @@ bash scripts/db_backup.sh
 | **MRFE Engine** | ✅ NEW v2.1 | Multi-format threat analyzer (text/PDF/CSV/DOCX); 3 endpoints |
 | **Simulation Engine** | ✅ NEW v2.1 | 5 synthetic scenarios through full pipeline; `POST /alerts/simulate` |
 | **Scoring Engine** | ✅ Upgraded | Poisson null model + impossibility boosters + supplementary scores |
-| **FastAPI API** | ✅ Running | Port 8080, JWT auth, SSE live stream, **31 endpoints** across 5 routers |
+| **FastAPI API** | ✅ Running | Port 8000, JWT auth, SSE live stream, **32 endpoints** across 5 routers |
+| **Next.js Dashboard** | ✅ NEW v2.4 | Port 3000, **9 pages** incl. Document Analyzer; Next.js 16 + React 19 + TailwindCSS v4 |
 | **Streamlit Dashboard** | ✅ Running | Port 8501, **7 pages** incl. MRFE Analysis + Simulation panel |
-| **React Dashboard** | ✅ Running | Port 5173, **8 pages**, 12 components, MRFE Analysis + Sim modal |
+| **Legacy React Dashboard** | ✅ Running | Port 5173, **8 pages**, 12 components, MRFE Analysis + Sim modal |
+| **Document Threat Analyzer** | ✅ NEW v2.4 | `POST /ps402/analyze-document` — PDF/DOCX/TXT upload → threat score + mitigation |
 | **SEBI PDF Generator** | ✅ Working | 8-page case reports with evidence tables |
 | **SQLite DB** | ✅ Active | `market_signals` table + 30+ columns on `alerts` table |
 | **Alembic Migrations** | ✅ 2 versions | `001_initial` + `002_market_signals` |
@@ -1313,16 +1450,17 @@ bash scripts/db_backup.sh
 | **CloudWatch** | ✅ Configured | 5 log groups, 6 alarms (5xx, latency, CPU, storage), multi-widget dashboard |
 
 **Functional highlights:**
+- **Document Threat Analyzer (v2.4)**: NEW — `POST /ps402/analyze-document` accepts PDF/DOCX/TXT uploads, extracts text, scores via PS-402 pipeline, recommends mitigation. Matching Next.js page at `/analyzer` with drag-and-drop UI and `ResultCard` visualization.
 - **PS-402 Ingestion Layer**: Full URL and social post ingestion pipeline — `ingest_url()`, `ingest_social_post()`, `ingest_batch()` — with phishing heuristics, misinfo scoring, velocity boost, `MarketSignal` DB persistence, and automatic `Alert` creation when `threat_score ≥ 0.60`.
 - **8-Engine + Mitigation Architecture**: GNN, DNA, Cross-Market, Zero-Day, Social Signal, Misinfo Detector, URL/Social Ingestor, **MRFE Engine**, and Real-Time Mitigation Engine all operational.
-- **Dual Dashboard (8+7 pages)**: React has MRFE Analysis + Sim modal + Digital Threats; Streamlit has MRFE Analysis + PS-402 Signals + Simulation panel.
+- **Triple Dashboard (9+8+7 pages)**: Next.js 16 primary UI with Document Analyzer; React has MRFE Analysis + Sim modal + Digital Threats; Streamlit has MRFE Analysis + PS-402 Signals + Simulation panel.
 - **MRFE Engine (v2.1)**: Analyzes text, PDF, TXT, CSV, DOCX for financial threats — heuristic threat scoring, event classification, scrip extraction, 30-day price context.
 - **Simulation Engine (v2.1)**: 5 synthetic scenarios (pump_dump, spoofing, circular_trading, social_manipulation, phishing_campaign) through full detection pipeline.
 - **Trained Models**: GNN (345 KB), DNA autoencoder (341 KB), and Misinfo classifier have saved weights; all load at API startup in < 1 second.
 - **Real-Time Mitigation**: Every new alert gets `severity`, `recommended_action`, `auto_mitigated`, and `escalated_to_sebi` populated at creation time.
 - **Auto-Mitigation**: Critical pump-and-dump/spoofing alerts and phishing threats are auto-acted without analyst intervention.
 - **9 Real-Case Demos**: pump_dump, circular_trading, spoofing, social_manipulation, coordinated_botnet, fake_news_campaign, phishing_campaign, platform_abuse, plus `ps402_demo` (5/5 PASS).
-- **Offline Demo Mode**: React dashboard runs on mock data (`VITE_USE_MOCK=true`) for pitch presentations without a live API.
+- **Offline Demo Mode**: Next.js and React dashboards both support mock data for pitch presentations without a live API.
 - **PDF Reports**: SEBI-compliant 8-page case PDFs generate successfully.
 - **Windows-Safe**: All Unicode/emoji print statements replaced with ASCII equivalents; `charmap` codec errors eliminated.
 
@@ -1362,6 +1500,8 @@ bash scripts/db_backup.sh
 - [x] MRFE Engine — multi-format document threat analyzer (v2.1)
 - [x] Simulation Engine — 5-scenario full pipeline demo (v2.1)
 - [x] `verify_argus.py` **29/29 PASSED**
+- [x] **Document Threat Analyzer (v2.4)** — `POST /ps402/analyze-document` + Next.js `/analyzer` page with drag-and-drop upload and `ResultCard` visualization
+- [x] **Next.js 16 Dashboard (v2.4)** — Primary pitch UI (`argus-main/`) with 9 pages, React 19, TailwindCSS v4, shadcn/ui, collapsible sidebar with engine status dots
 
 ### Planned 🔜
 - [ ] Real-time Kafka consumer integration for live trade stream
@@ -1372,9 +1512,12 @@ bash scripts/db_backup.sh
 - [ ] Alerting integrations: Slack, PagerDuty, SEBI email webhook
 - [ ] Historical pattern backtest runner across archived NSE/BSE data
 - [ ] Model retraining pipeline with periodic data refresh
+- [ ] Connect Next.js dashboard to live FastAPI backend (currently mock data)
+- [ ] Docker image for `argus-main` Next.js frontend
 
 ---
 
 *SENTINEL — Scalable ENTity Intelligence for NEtwork-Level threat detection*  
 *Built for the NEOFuture Hackathon PS-402: Detection of Digital Threats & Malicious Content*  
-*AWS production deploy (April 2026): Terraform IaC (17 files), GitHub Actions CI/CD, S3 PDF/model storage, RDS PostgreSQL 16, ElastiCache Redis 7, CloudWatch monitoring.*
+*v2.4.1 — April 2026: Document Threat Analyzer, Next.js 16 dashboard, 32 API endpoints, 29/29 verification suite.*  
+*AWS production deploy: Terraform IaC (17 files), GitHub Actions CI/CD, S3 PDF/model storage, RDS PostgreSQL 16, ElastiCache Redis 7, CloudWatch monitoring.*

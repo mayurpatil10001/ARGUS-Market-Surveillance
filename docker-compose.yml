@@ -1,5 +1,13 @@
 version: "3.9"
 
+# ── Profiles ──────────────────────────────────────────────────────────────────
+# Default (no profile):  postgres + redis + argus-api
+# --profile kafka:       adds zookeeper + kafka + argus-worker
+#
+# Usage:
+#   docker compose up                          # minimal — API only
+#   docker compose --profile kafka up          # full stack with Kafka
+
 networks:
   argus-net:
     driver: bridge
@@ -8,24 +16,27 @@ volumes:
   postgres_data:
 
 services:
+
+  # ── Postgres ────────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: argus-postgres
     environment:
-      POSTGRES_USER: argus
-      POSTGRES_PASSWORD: argus
-      POSTGRES_DB: argus
+      POSTGRES_USER: ${POSTGRES_USER:-argus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-argus}
+      POSTGRES_DB: ${POSTGRES_DB:-argus}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - argus-net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U argus -d argus"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-argus} -d ${POSTGRES_DB:-argus}"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
+  # ── Redis ────────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
     container_name: argus-redis
@@ -38,7 +49,40 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ── API ──────────────────────────────────────────────────────────────────────
+  argus-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+      # Enable BuildKit cache mounts (set DOCKER_BUILDKIT=1 or use `docker buildx`)
+      args:
+        BUILDKIT_INLINE_CACHE: "1"
+    image: argus-api:latest
+    container_name: argus-api
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8000}:8000"
+    networks:
+      - argus-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    restart: unless-stopped
+    # NOTE: No volume mount — code baked into image at build time.
+    # For live-reload in dev, use: docker compose -f docker-compose.dev.yml up
+
+  # ── Zookeeper (kafka profile only) ───────────────────────────────────────────
   zookeeper:
+    profiles: [kafka]
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: argus-zookeeper
     environment:
@@ -53,7 +97,9 @@ services:
       retries: 5
     restart: unless-stopped
 
+  # ── Kafka (kafka profile only) ────────────────────────────────────────────────
   kafka:
+    profiles: [kafka]
     image: confluentinc/cp-kafka:7.5.0
     container_name: argus-kafka
     depends_on:
@@ -74,60 +120,13 @@ services:
       retries: 10
     restart: unless-stopped
 
-  argus-api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    container_name: argus-api
-    env_file:
-      - .env
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
-    ports:
-      - "8000:8000"
-    networks:
-      - argus-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: unless-stopped
-    volumes:
-      - .:/app
-
-  argus-dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile.dashboard
-    container_name: argus-dashboard
-    env_file:
-      - .env
-    depends_on:
-      argus-api:
-        condition: service_healthy
-    ports:
-      - "8501:8501"
-    networks:
-      - argus-net
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-    restart: unless-stopped
-    volumes:
-      - .:/app
-
+  # ── Kafka worker (kafka profile only) ─────────────────────────────────────────
   argus-worker:
+    profiles: [kafka]
     build:
       context: .
       dockerfile: Dockerfile.api
+    image: argus-api:latest   # reuses the same built image — no second build
     container_name: argus-worker
     command: ["python", "-m", "data.pipeline.kafka_consumer"]
     env_file:
@@ -142,5 +141,3 @@ services:
     networks:
       - argus-net
     restart: unless-stopped
-    volumes:
-      - .:/app

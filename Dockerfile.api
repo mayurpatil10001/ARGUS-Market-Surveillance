@@ -1,35 +1,52 @@
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
+# syntax=docker/dockerfile:1.4
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
+# Build-time system deps only
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc g++ libpq-dev curl \
+    gcc g++ libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-prod.txt ./
+
+# ── Install CPU-only torch first (saves ~1.5 GB vs default CUDA build) ────────
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --upgrade pip && \
+    pip install \
+        torch==2.3.0+cpu \
+        torch-geometric==2.5.3 \
+        --index-url https://download.pytorch.org/whl/cpu \
+        --extra-index-url https://pypi.org/simple
+
+# ── Install remaining prod deps (cached between builds if requirements unchanged)
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements-prod.txt
+
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 FROM python:3.11-slim
 
 WORKDIR /app
 
+# Runtime system deps only (libpq for psycopg2, curl for healthcheck)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
+# Copy installed packages from builder (no pip needed at runtime)
 COPY --from=builder /usr/local/lib/python3.11/site-packages \
                     /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
+# Copy application code
 COPY . .
 
+# Reports temp dir
 RUN mkdir -p /tmp/argus_reports
 
-# Non-root user for security
+# Non-root user
 RUN useradd -m -u 1000 argus \
  && chown -R argus:argus /app /tmp/argus_reports
 
@@ -37,9 +54,19 @@ USER argus
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    # Suppress HuggingFace progress bars in logs
+    TRANSFORMERS_VERBOSITY=error \
+    HF_DATASETS_OFFLINE=1
 
 EXPOSE 8000
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", \
-     "--workers", "2", "--loop", "uvloop", "--http", "h11"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/ping || exit 1
+
+CMD ["uvicorn", "api.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "2", \
+     "--loop", "uvloop", \
+     "--http", "h11"]

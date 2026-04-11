@@ -12,6 +12,17 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 
+# ── bcrypt compatibility shim ─────────────────────────────────────────────────
+# passlib 1.7.4 calls bcrypt.__about__.__version__ but bcrypt ≥ 4.0 dropped
+# the __about__ module. Inject a stub before passlib loads to silence the error.
+import bcrypt as _bcrypt
+if not hasattr(_bcrypt, "__about__"):
+    import types as _types
+    _about = _types.ModuleType("bcrypt.__about__")
+    _about.__version__ = getattr(_bcrypt, "__version__", "4.0.1")
+    _bcrypt.__about__ = _about  # type: ignore[attr-defined]
+# ─────────────────────────────────────────────────────────────────────────────
+
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,8 +48,8 @@ JWT_EXPIRE_MINUTES = 480  # 8 hours
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # In-dev admin user — in production this should come from a users DB table
-# Password is truncated to 64 chars to avoid bcrypt 72-byte limit issues
-_ADMIN_PASSWORD_RAW = os.getenv("ADMIN_PASSWORD", "argus2024")[:64]
+# bcrypt hard limit is 72 bytes — truncate consistently on both hash + verify sides
+_ADMIN_PASSWORD_RAW = os.getenv("ADMIN_PASSWORD", "argus2024")[:72]
 _ADMIN_HASHED: str | None = None  # lazily hashed on first request
 
 ADMIN_USERNAME = "admin"
@@ -143,11 +154,17 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        # Streamlit dashboard
         "http://localhost:8501",
-        "http://argus-dashboard:8501",
         "http://127.0.0.1:8501",
+        "http://argus-dashboard:8501",
+        # Next.js frontend (default dev port)
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        # Vite dev server
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        # Self (API server on 8080)
         "http://localhost:8080",
         "http://127.0.0.1:8080",
     ],
@@ -188,13 +205,24 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """Issues JWT bearer token for valid credentials."""
     if form_data.username != ADMIN_USERNAME:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    if not _verify_password(form_data.password[:64], _get_admin_hash()):
+    if not _verify_password(form_data.password[:72], _get_admin_hash()):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = _create_token({"sub": form_data.username, "role": ADMIN_ROLE})
     return TokenResponse(access_token=token)
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
+
+@app.get("/ping", tags=["System"], include_in_schema=True)
+async def ping():
+    """Minimal liveness check — no auth, no DB. Returns instantly."""
+    return {
+        "status": "ok",
+        "service": "SENTINEL",
+        "version": "2.0.0",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+    }
+
 
 @app.get("/health", response_model=HealthOut, tags=["System"])
 async def health_check(db: Session = Depends(get_db)):

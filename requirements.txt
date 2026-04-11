@@ -21,6 +21,7 @@ plotly==5.22.0
 reportlab==4.2.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
 pytest==8.2.0
 httpx==0.27.0
 python-dotenv==1.0.1
@@ -29,9 +30,12 @@ pydantic-settings==2.2.1
 networkx==3.3
 dowhy==0.11.1
 pdfplumber==0.11.0
+python-docx==1.1.2
 msgpack==1.0.8
 sse-starlette==2.1.0
 pyvis==0.3.2
 pytest-asyncio==0.23.7
 boto3>=1.34.0
 uvloop>=0.19.0
+transformers>=4.40.0
+sentencepiece>=0.2.0

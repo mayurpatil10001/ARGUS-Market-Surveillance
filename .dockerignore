@@ -1,0 +1,57 @@
+# .dockerignore — keep the build context small for faster docker build sends
+
+# Version control
+.git
+.github
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Virtual envs
+.venv
+venv
+env
+
+# Dev databases
+*.db
+*.sqlite3
+
+# Secrets (never bake into image)
+.env
+.env.*
+!.env.example
+
+# Test files
+tests/
+pytest.ini
+
+# Large dev-only assets
+argus-dashboard/
+dashboard/
+demo/
+reports/
+data/raw/
+data/cache/
+
+# Model weights (mount as volumes in prod, don't bake in)
+models/gnn/tcn_weights.pt
+models/dna/autoencoder_weights.pt
+models/misinfo/misinfo_weights.pkl
+models/finbert/
+
+# Docs / infra not needed at runtime
+*.md
+README*
+infra/
+nginx/
+docker-compose*.yml
+Dockerfile*
+
+# Node (if any repo tooling)
+node_modules/

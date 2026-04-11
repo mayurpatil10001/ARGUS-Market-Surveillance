@@ -136,6 +136,12 @@ button:active { opacity: 0.7; }
   50%       { box-shadow: 0 0 0 5px rgba(239,68,68,0); }
 }
 
+/* ── Spinner for simulation button ──────────────────────────────────── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+
 /* ── Chart grid bg ──────────────────────────────────────────────────── */
 .chart-grid-bg {
   background-image:

@@ -1,0 +1,48 @@
+# AWS Compose overlay — removes self-hosted postgres/redis (use RDS + ElastiCache)
+# and configures CloudWatch logging for all containers.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.aws.yml up -d
+#
+# Differences from docker-compose.prod.yml:
+#   - postgres service REMOVED  → use POSTGRES_URL pointing to RDS endpoint
+#   - redis service REMOVED     → use REDIS_URL pointing to ElastiCache (TLS)
+#   - nginx service REMOVED     → ALB handles SSL termination and routing
+#   - argus-api gets S3 + AWS env vars
+#   - All containers log via awslogs driver to /argus/app log group
+
+version: "3.9"
+
+x-aws-logging: &aws-logging
+  driver: awslogs
+  options:
+    awslogs-region: "${AWS_REGION:-ap-south-1}"
+    awslogs-group: "/argus/app"
+    awslogs-stream-prefix: "argus"
+    awslogs-create-group: "true"
+
+services:
+  # postgres: REMOVED — connections go to RDS via POSTGRES_URL in .env.prod
+  # redis:    REMOVED — connections go to ElastiCache via REDIS_URL in .env.prod
+  # nginx:    REMOVED — ALB handles SSL termination and path-based routing
+
+  zookeeper:
+    logging: *aws-logging
+
+  kafka:
+    logging: *aws-logging
+
+  argus-api:
+    logging: *aws-logging
+    environment:
+      AWS_DEFAULT_REGION: "${AWS_REGION:-ap-south-1}"
+      S3_REPORTS_BUCKET:  "${S3_REPORTS_BUCKET}"
+      S3_MODELS_BUCKET:   "${S3_MODELS_BUCKET}"
+    # No ports published — ALB routes directly to container port 8000 on EC2
+
+  argus-worker:
+    logging: *aws-logging
+
+  argus-dashboard:
+    logging: *aws-logging
+    # No ports published — ALB routes directly to container port 5173 on EC2

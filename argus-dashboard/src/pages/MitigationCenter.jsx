@@ -61,6 +61,11 @@ function ActionBtn({ children, color = 'var(--accent-green)', onClick }) {
 
 export default function MitigationCenter() {
   const [sevFilter, setSevFilter] = useState('all')
+  const [simScenario, setSimScenario] = useState('all')
+  const [simRunning, setSimRunning] = useState(false)
+  const [simResult, setSimResult] = useState(null)
+  const [simModalOpen, setSimModalOpen] = useState(false)
+  const [simError, setSimError] = useState(null)
   const qc = useQueryClient()
 
   const { data: summary = {} } = useQuery(
@@ -111,13 +116,179 @@ export default function MitigationCenter() {
     <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.2 }}>
       {/* Page header */}
       <div style={{ marginBottom: 24 }}>
-        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20, color: 'var(--text-primary)', letterSpacing: 2 }}>
-          MITIGATION CENTER
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 20, color: 'var(--text-primary)', letterSpacing: 2 }}>
+              MITIGATION CENTER
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>
+              Real-time alert triage — apply, dismiss, or escalate recommended actions
+            </div>
+          </div>
+          {/* Simulation controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <select
+              value={simScenario}
+              onChange={e => setSimScenario(e.target.value)}
+              disabled={simRunning}
+              style={{
+                background: 'var(--bg-surface)', border: '1px solid var(--border-bright)',
+                color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 10,
+                padding: '6px 10px', borderRadius: 4, cursor: 'pointer',
+              }}
+            >
+              <option value="all">All Scenarios</option>
+              <option value="pump_dump">Pump &amp; Dump</option>
+              <option value="spoofing">Spoofing</option>
+              <option value="circular_trading">Circular Trading</option>
+              <option value="social_manipulation">Social Manipulation</option>
+              <option value="phishing_campaign">Phishing Campaign</option>
+            </select>
+            <button
+              onClick={async () => {
+                setSimRunning(true); setSimError(null); setSimResult(null)
+                try {
+                  const token = localStorage.getItem('argus_token')
+                  const resp = await fetch('/alerts/simulate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ scenario: simScenario }),
+                  })
+                  if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`)
+                  const data = await resp.json()
+                  setSimResult(data)
+                  setSimModalOpen(true)
+                  qc.invalidateQueries('mitigation-summary')
+                  qc.invalidateQueries('mitigation-pending')
+                } catch (e) {
+                  setSimError(e.message)
+                } finally {
+                  setSimRunning(false)
+                }
+              }}
+              disabled={simRunning}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 16px',
+                border: '1px solid var(--accent-green)',
+                background: simRunning ? 'rgba(34,211,238,0.05)' : 'rgba(34,211,238,0.1)',
+                color: 'var(--accent-green)',
+                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, letterSpacing: 1.5,
+                borderRadius: 6, cursor: simRunning ? 'wait' : 'pointer',
+                transition: 'all 0.15s',
+              }}
+            >
+              {simRunning
+                ? <><span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid var(--accent-green)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} /> SIMULATION RUNNING...</>
+                : '▶ RUN SIMULATION'
+              }
+            </button>
+          </div>
         </div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)', marginTop: 4 }}>
-          Real-time alert triage — apply, dismiss, or escalate recommended actions
-        </div>
+        {simError && (
+          <div style={{ marginTop: 8, padding: '6px 12px', background: 'rgba(239,68,68,0.1)', border: '1px solid #ef444455', borderRadius: 4, color: '#ef4444', fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+            Simulation error: {simError}
+          </div>
+        )}
       </div>
+
+      {/* Simulation Results Modal */}
+      {simModalOpen && simResult && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, padding: 24,
+        }}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border-bright)',
+            borderRadius: 10, width: '100%', maxWidth: 860,
+            maxHeight: '90vh', overflow: 'auto', padding: 28,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 800, color: 'var(--accent-green)', letterSpacing: 3 }}>
+                SIMULATION RESULTS
+              </div>
+              <button onClick={() => setSimModalOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', cursor: 'pointer', fontSize: 18 }}>✕</button>
+            </div>
+
+            {/* Summary cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
+              {[
+                ['SCENARIOS RUN', simResult.summary?.total_scenarios, 'var(--accent-green)'],
+                ['PASSED', simResult.summary?.passed, '#22c55e'],
+                ['ALERTS CREATED', simResult.summary?.alerts_created, 'var(--accent-amber)'],
+                ['AVG DETECT TIME', `${simResult.summary?.avg_detection_time_ms?.toFixed(0)}ms`, 'var(--accent-blue)'],
+              ].map(([label, value, color]) => (
+                <div key={label} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px' }}>
+                  <div style={{ fontSize: 8, color: 'var(--text-dim)', fontFamily: 'var(--font-mono)', letterSpacing: 2, marginBottom: 4 }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color, fontFamily: 'var(--font-mono)' }}>{value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Per-scenario table */}
+            <div style={{ border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '180px 70px 90px 100px 1fr 110px', padding: '8px 14px', background: 'var(--bg-surface)', gap: 10, borderBottom: '1px solid var(--border)' }}>
+                {['SCENARIO', 'STATUS', 'THREAT', 'SEVERITY', 'RECOMMENDED ACTION', 'DETECT TIME'].map(h => (
+                  <div key={h} style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-dim)', letterSpacing: 1.5 }}>{h}</div>
+                ))}
+              </div>
+              {Object.entries(simResult.results || {}).map(([name, r], i) => (
+                <div key={name} style={{
+                  display: 'grid', gridTemplateColumns: '180px 70px 90px 100px 1fr 110px',
+                  padding: '10px 14px', gap: 10, alignItems: 'center',
+                  borderBottom: '1px solid var(--border)',
+                  background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)'
+                }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {name.replace(/_/g, ' ').toUpperCase()}
+                  </div>
+                  <div>
+                    <span style={{
+                      padding: '2px 8px', borderRadius: 3, fontSize: 9, fontWeight: 700,
+                      fontFamily: 'var(--font-mono)', letterSpacing: 1.5,
+                      background: r.status === 'pass' ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                      border: `1px solid ${r.status === 'pass' ? '#22c55e' : '#ef4444'}`,
+                      color: r.status === 'pass' ? '#22c55e' : '#ef4444',
+                    }}>{r.status?.toUpperCase()}</span>
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: r.threat_score >= 0.75 ? '#ef4444' : r.threat_score >= 0.5 ? '#f97316' : '#22c55e' }}>
+                    {((r.threat_score || 0) * 100).toFixed(0)}%
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                    {r.severity}
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--accent-amber)', letterSpacing: 0.5 }}>
+                    {(r.recommended_action || '').replace(/_/g, ' ')}
+                  </div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)' }}>
+                    {r.detection_time_ms?.toFixed(0)}ms
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-dim)' }}>
+                sim_id: {simResult.simulation_id} · duration: {simResult.total_duration_ms?.toFixed(0)}ms · all data: synthetic
+              </div>
+              <button
+                onClick={() => setSimModalOpen(false)}
+                style={{
+                  padding: '7px 20px',
+                  background: 'transparent',
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-secondary)',
+                  fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: 2,
+                  borderRadius: 4, cursor: 'pointer',
+                }}
+              >
+                CLOSE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 16, marginBottom: 24 }}>

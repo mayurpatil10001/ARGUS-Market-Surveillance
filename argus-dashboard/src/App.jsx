@@ -10,6 +10,7 @@ import CaseBuilder from './pages/CaseBuilder'
 import WeeklySummary from './pages/WeeklySummary'
 import MitigationCenter from './pages/MitigationCenter'
 import PS402Signals from './pages/PS402Signals'
+import MRFEAnalysis from './pages/MRFEAnalysis'
 
 const qc = new QueryClient({
   defaultOptions: { queries: { refetchInterval: 30000, retry: 1, refetchOnWindowFocus: false } },
@@ -33,6 +34,7 @@ export default function App() {
                 <Route path="/summary" element={<WeeklySummary />} />
                 <Route path="/mitigation" element={<MitigationCenter />} />
                 <Route path="/ps402" element={<PS402Signals />} />
+                <Route path="/mrfe" element={<MRFEAnalysis />} />
               </Routes>
             </main>
           </div>

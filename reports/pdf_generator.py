@@ -1,12 +1,14 @@
 """
 reports/pdf_generator.py — SEBI-style case file PDF generator using ReportLab.
+Optionally uploads the generated PDF to S3 when S3_REPORTS_BUCKET env var is set.
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
@@ -22,6 +24,7 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+logger = logging.getLogger(__name__)
 
 # ─── Color Palette ────────────────────────────────────────────────────────────
 SEBI_NAVY = colors.HexColor("#1A2B5F")
@@ -31,9 +34,46 @@ SEBI_LIGHT = colors.HexColor("#F5F5F5")
 TEXT_BLACK = colors.HexColor("#1A1A1A")
 
 
-def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
+def _upload_to_s3(local_path: str, case_number: str) -> Optional[str]:
+    """
+    Upload PDF to S3 if S3_REPORTS_BUCKET env var is set.
+    Returns a presigned URL (valid 7 days) or None if S3 not configured.
+    Non-fatal — logs warning and returns None on any error.
+    """
+    bucket = os.environ.get("S3_REPORTS_BUCKET")
+    if not bucket:
+        return None
+    try:
+        import boto3
+        region = os.environ.get("AWS_REGION", os.environ.get("AWS_DEFAULT_REGION", "ap-south-1"))
+        s3 = boto3.client("s3", region_name=region)
+        key = f"reports/{case_number}.pdf"
+        s3.upload_file(
+            local_path,
+            bucket,
+            key,
+            ExtraArgs={
+                "ContentType": "application/pdf",
+                "ServerSideEncryption": "AES256",
+                "Metadata": {"case_number": case_number},
+            },
+        )
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket, "Key": key},
+            ExpiresIn=604800,  # 7 days
+        )
+        logger.info("PDF uploaded to S3: s3://%s/%s", bucket, key)
+        return url
+    except Exception as exc:
+        logger.warning("S3 upload failed (non-fatal): %s", exc)
+        return None
+
+
+def generate_case_pdf(alert: Any, case: Any, output_path: str) -> Optional[str]:
     """
     Generates a professional SEBI enforcement order-style PDF.
+    Returns the S3 presigned URL if S3_REPORTS_BUCKET is configured, else None.
 
     Sections:
       1. Header — SEBI / ARGUS branding + case number
@@ -277,7 +317,7 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
 
     if case.estimated_gain is not None:
         story.append(Paragraph(
-            f"<b>Estimated Gain from Manipulation:</b> ₹{case.estimated_gain:,.2f}",
+            f"<b>Estimated Gain from Manipulation:</b> Rs.{case.estimated_gain:,.2f}",
             style_bold,
         ))
     story.append(Spacer(1, 0.5 * cm))
@@ -319,3 +359,12 @@ def generate_case_pdf(alert: Any, case: Any, output_path: str) -> None:
     ))
 
     doc.build(story)
+
+    # ── Optional S3 upload ────────────────────────────────────────────────────
+    s3_url = _upload_to_s3(output_path, case.case_number)
+    if s3_url and hasattr(case, "s3_pdf_url"):
+        try:
+            case.s3_pdf_url = s3_url
+        except Exception:
+            pass
+    return s3_url

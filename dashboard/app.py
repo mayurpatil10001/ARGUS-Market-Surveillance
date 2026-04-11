@@ -109,7 +109,7 @@ with st.sidebar:
 
     page = st.radio(
         "Go to page:",
-        ["🚨 Live Threat Alerts", "🧬 Behavioral DNA", "🕸️ Threat Network", "📁 Threat Report Builder", "🔍 PS-402 Signals", "🛡️ Mitigation Center"],
+        ["🚨 Live Threat Alerts", "🧬 Behavioral DNA", "🕸️ Threat Network", "📁 Threat Report Builder", "🔍 PS-402 Signals", "🛡️ Mitigation Center", "🔬 MRFE Analysis"],
         label_visibility="collapsed",
     )
 
@@ -139,4 +139,7 @@ elif page == "🔍 PS-402 Signals":
     render(API_BASE, token)
 elif page == "🛡️ Mitigation Center":
     from dashboard.pages.mitigation_center import render
+    render(API_BASE, token)
+elif page == "🔬 MRFE Analysis":
+    from dashboard.pages.mrfe_analysis import render
     render(API_BASE, token)

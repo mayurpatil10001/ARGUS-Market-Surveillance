@@ -78,6 +78,18 @@ function IconBolt() {
     </svg>
   )
 }
+function IconFileSearch() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+      <rect x="3" y="2" width="10" height="13" rx="1.5" stroke="currentColor" strokeWidth="1.2"/>
+      <line x1="5.5" y1="6" x2="10.5" y2="6" stroke="currentColor" strokeWidth="1"/>
+      <line x1="5.5" y1="8.5" x2="10.5" y2="8.5" stroke="currentColor" strokeWidth="1"/>
+      <line x1="5.5" y1="11" x2="8" y2="11" stroke="currentColor" strokeWidth="1"/>
+      <circle cx="13.5" cy="13.5" r="2" stroke="currentColor" strokeWidth="1.1"/>
+      <line x1="15" y1="15" x2="16.5" y2="16.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+    </svg>
+  )
+}
 function IconChevronLeft() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -101,6 +113,7 @@ const NAV = [
   { to: '/summary',    label: 'Weekly Summary',     icon: <IconChart /> },
   { to: '/ps402',      label: 'Digital Threats',    icon: <IconBolt /> },
   { to: '/mitigation', label: 'Mitigation Center',  icon: <IconShield /> },
+  { to: '/mrfe',       label: 'MRFE Analysis',     icon: <IconFileSearch /> },
 ]
 
 // ─── Status dot ───────────────────────────────────────────────────────────────

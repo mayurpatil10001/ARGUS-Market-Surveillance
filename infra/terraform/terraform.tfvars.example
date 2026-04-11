@@ -1,0 +1,22 @@
+# Copy to terraform.tfvars and fill in — NEVER commit terraform.tfvars to git
+# terraform.tfvars is in .gitignore
+
+aws_region        = "ap-south-1"
+environment       = "production"
+domain_name       = "argus.yourdomain.com"
+ec2_key_pair_name = "your-key-pair-name"
+ec2_instance_type = "t3.xlarge"
+db_instance_class = "db.t3.medium"
+db_multi_az       = false
+
+# Secrets — use strong, unique random values
+# Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+db_password    = "CHANGE_ME_STRONG_DB_PASSWORD"
+redis_password = "CHANGE_ME_STRONG_REDIS_PASSWORD"
+jwt_secret     = "CHANGE_ME_64_CHAR_RANDOM_HEX_STRING"
+admin_password = "CHANGE_ME_STRONG_ADMIN_PASSWORD"
+
+# Optional API keys — leave empty string "" to skip
+zerodha_api_key      = ""
+zerodha_access_token = ""
+twitter_bearer_token = ""

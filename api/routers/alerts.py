@@ -18,6 +18,7 @@ from api.schemas import (
     AlertOut, AlertStatusUpdate, AlertAssign,
     MitigationApplyRequest, MitigationDismissRequest,
     MitigationEscalateRequest, MitigationSummaryOut,
+    SimulationRequest, SimulationResultOut,
 )
 from data.db.crud import (
     get_alert, get_alerts, update_alert_status, assign_alert, count_alerts_today,
@@ -195,3 +196,47 @@ async def escalate_to_sebi(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     return AlertOut.model_validate(alert)
+
+
+# ── Simulation endpoints ──────────────────────────────────────────────────────
+
+@router.get("/simulate/scenarios")
+async def list_simulation_scenarios():
+    """
+    Returns list of available simulation scenarios with descriptions.
+    No authentication required.
+    """
+    from scoring.simulation_engine import SIMULATION_SCENARIOS
+    return {
+        "scenarios": [
+            {"id": k, **v}
+            for k, v in SIMULATION_SCENARIOS.items()
+        ] + [
+            {
+                "id": "all",
+                "name": "All Scenarios",
+                "description": "Run all 5 scenarios in sequence.",
+            }
+        ],
+    }
+
+
+@router.post("/simulate")
+async def run_simulation(
+    body: SimulationRequest,
+    db: Session = Depends(get_db),
+    _user: dict = Depends(get_current_user),
+):
+    """
+    Run a full ARGUS system simulation for the given scenario.
+    Generates synthetic threats and passes them through the full detection pipeline.
+    All generated data is labeled synthetic_data_used=True.
+    """
+    from scoring.simulation_engine import SimulationEngine
+    try:
+        result = SimulationEngine().run_full_simulation(db, scenario=body.scenario)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Simulation failed: {exc}")
+    return result

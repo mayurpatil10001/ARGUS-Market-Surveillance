@@ -269,9 +269,95 @@ class WeeklySummaryOut(BaseModel):
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 class HealthOut(BaseModel):
-    status: str = "ok"
-    system: str = "SENTINEL"
+    """
+    Production health response — DB/Redis/Kafka connectivity, model load states,
+    overall status, backend type, and uptime.
+    """
+    status: str = "healthy"          # healthy | degraded | unhealthy
     version: str = "2.0.0"
-    services: dict = Field(default_factory=dict)
-    model_versions: dict = Field(default_factory=dict)
+    backend: str = "sqlite"          # postgresql | sqlite
+    services: dict = Field(default_factory=dict)  # database, redis, kafka
+    models: dict = Field(default_factory=dict)    # gnn, dna, misinfo, zero_day, cross_market
+    uptime_seconds: float = 0.0
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    # Legacy fields kept for backward compatibility
+    system: str = "SENTINEL"
+    model_versions: dict = Field(default_factory=dict)
+
+
+# ─── MRFE ─────────────────────────────────────────────────────────────────────
+
+class MRFETextRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=100_000,
+                      description="Text to analyze (news headline, social post, document text, etc.)")
+    fetch_historical: bool = Field(
+        default=False,
+        description="If True, fetch 30-day price context for affected scrips (may use synthetic fallback data).",
+    )
+
+
+class MRFEAnalysisOut(BaseModel):
+    event_type: str
+    threat_score: float
+    misinfo_score: float
+    social_score: float = 0.0
+    threat_adapter_score: float = 0.0
+    market_impact: str       # low / medium / high / critical
+    affected_scrips: List[str] = Field(default_factory=list)
+    recommended_action: str
+    confidence: float
+    evidence_snippets: List[str] = Field(default_factory=list)
+    processing_time_ms: float
+    synthetic_data: bool = False
+    analyzed_at: Optional[str] = None
+    historical_context: dict = Field(default_factory=dict)
+    note: Optional[str] = None
+    # File-specific (optional)
+    filename: Optional[str] = None
+    file_type: Optional[str] = None
+    pdf_pages: Optional[int] = None
+    pdf_word_count: Optional[int] = None
+
+
+# ─── Simulation ────────────────────────────────────────────────────────────────
+
+class SimulationRequest(BaseModel):
+    scenario: str = Field(
+        default="all",
+        description=(
+            "Scenario to run: pump_dump, spoofing, circular_trading, "
+            "social_manipulation, phishing_campaign, or all"
+        ),
+    )
+
+
+class SimulationScenarioResult(BaseModel):
+    status: str                               # pass / fail
+    alert_created: bool = False
+    alert_id: Optional[str] = None
+    signal_id: Optional[str] = None
+    threat_score: float = 0.0
+    severity: str = "unknown"
+    recommended_action: str = "log_only"
+    detection_time_ms: float = 0.0
+    synthetic_data_used: bool = True
+    error: Optional[str] = None
+
+
+class SimulationSummary(BaseModel):
+    total_scenarios: int
+    passed: int
+    failed: int
+    alerts_created: int
+    signals_created: int
+    avg_detection_time_ms: float
+
+
+class SimulationResultOut(BaseModel):
+    simulation_id: str
+    started_at: str
+    completed_at: str
+    total_duration_ms: float
+    scenarios_run: List[str]
+    results: dict     # scenario_name -> SimulationScenarioResult dict
+    summary: SimulationSummary

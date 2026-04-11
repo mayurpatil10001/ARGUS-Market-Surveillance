@@ -4,6 +4,7 @@ Falls back to SQLite for local development when PostgreSQL is unavailable.
 """
 from __future__ import annotations
 
+import logging
 import os
 import socket
 import sys
@@ -14,12 +15,14 @@ try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 except Exception:
     pass
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text as sa_text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 def _pg_unavailable() -> bool:
@@ -51,11 +54,36 @@ else:
         pool_pre_ping=True,
         pool_size=10,
         max_overflow=20,
+        pool_recycle=3600,
+        connect_args={"connect_timeout": 10},
         echo=False,
     )
     print(f"[ARGUS] [OK] Using PostgreSQL: {DATABASE_URL}")
 
+# Log active backend at startup
+logger.info("ARGUS DB backend: %s", "postgresql" if not _USE_SQLITE else "sqlite")
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def is_postgres() -> bool:
+    """Returns True when the active engine is PostgreSQL."""
+    return not _USE_SQLITE
+
+
+def get_pg_engine():
+    """
+    Returns the PostgreSQL engine.
+    Raises RuntimeError if POSTGRES_URL is not set or PostgreSQL is unreachable.
+    Used by production health checks and migration scripts.
+    """
+    if not _raw_url:
+        raise RuntimeError("POSTGRES_URL environment variable is not set.")
+    if _USE_SQLITE:
+        raise RuntimeError(
+            f"PostgreSQL is unreachable at the configured URL: {_raw_url}"
+        )
+    return engine
 
 
 def get_db() -> Session:

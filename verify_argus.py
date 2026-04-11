@@ -1,5 +1,5 @@
 """
-verify_argus.py — 10-step ARGUS verification suite.
+verify_argus.py — 29-step ARGUS verification suite.
 Run from project root: python verify_argus.py
 """
 import os, sys, math, subprocess
@@ -318,14 +318,158 @@ def test_ps402_router():
         f"/ps402 prefix not found in routes: {route_paths}"
 check("ps402 router registered — /ps402 prefix present on app", test_ps402_router)
 
+# 21. Health endpoint schema validation
+def test_health_schema():
+    from fastapi.testclient import TestClient
+    from api.main import app
+    client = TestClient(app)
+    resp = client.get("/health")
+    assert resp.status_code == 200, f"Health endpoint returned {resp.status_code}"
+    data = resp.json()
+    required_keys = {"status", "backend", "services", "models", "uptime_seconds"}
+    missing = required_keys - set(data.keys())
+    assert not missing, f"Health response missing keys: {missing}"
+check("Health endpoint schema — status/backend/services/models/uptime_seconds", test_health_schema)
+
+# 22. docker-compose.prod.yml exists and has required services
+def test_docker_compose_prod():
+    import yaml
+    assert os.path.exists("docker-compose.prod.yml"), "docker-compose.prod.yml not found"
+    with open("docker-compose.prod.yml") as f:
+        doc = yaml.safe_load(f)
+    svc = doc.get("services", {})
+    required_services = {"postgres", "redis", "kafka", "argus-api", "nginx"}
+    missing = required_services - set(svc.keys())
+    assert not missing, f"docker-compose.prod.yml missing services: {missing}"
+check("docker-compose.prod.yml — all required services present", test_docker_compose_prod)
+
+# 23. nginx/nginx.conf exists and has required directives
+def test_nginx_conf():
+    assert os.path.exists("nginx/nginx.conf"), "nginx/nginx.conf not found"
+    with open("nginx/nginx.conf") as f:
+        content = f.read()
+    for directive in ("upstream argus_api", "proxy_pass", "/api/alerts/live", "ssl_certificate"):
+        assert directive in content, f"nginx.conf missing directive: {directive!r}"
+check("nginx/nginx.conf — upstream/proxy_pass/SSE/ssl_certificate present", test_nginx_conf)
+
+# 24. boto3 importable (for S3 integration)
+def test_boto3():
+    import boto3
+    assert hasattr(boto3, "client"), "boto3.client not found"
+    assert hasattr(boto3, "resource"), "boto3.resource not found"
+    _ = boto3.client  # ensure it's the real thing
+check("boto3 available for S3/SSM integration", test_boto3)
+
+# 25. docker-compose.aws.yml exists and has correct structure
+def test_docker_compose_aws():
+    import yaml
+    assert os.path.exists("docker-compose.aws.yml"), "docker-compose.aws.yml not found"
+    with open("docker-compose.aws.yml") as f:
+        content = f.read()
+        doc = yaml.safe_load(content)
+    svc = doc.get("services", {})
+    assert "argus-api" in svc, "argus-api not in docker-compose.aws.yml services"
+    assert "postgres" not in svc, \
+        "docker-compose.aws.yml should NOT define postgres (use RDS endpoint)"
+    assert "redis" not in svc, \
+        "docker-compose.aws.yml should NOT define redis (use ElastiCache endpoint)"
+check("docker-compose.aws.yml — aws overlay removes self-hosted DB/Redis", test_docker_compose_aws)
+
+# 26. GitHub Actions deploy workflow exists
+def test_github_actions():
+    gha_path = ".github/workflows/deploy.yml"
+    assert os.path.exists(gha_path), f"{gha_path} not found"
+    with open(gha_path) as f:
+        content = f.read().lower()
+    assert "ecr" in content, "deploy.yml does not mention ECR"
+    assert "ssm" in content, "deploy.yml does not mention SSM"
+    assert "aws-actions" in content, "deploy.yml missing aws-actions"
+check("GitHub Actions deploy.yml — ECR build + SSM zero-SSH deploy present", test_github_actions)
+
+# 27. MRFEEngine import + analyze_text() with pump text
+def test_mrfe_text():
+    from models.mrfe.engine import MRFEEngine
+    engine = MRFEEngine()
+    pump_text = (
+        "RELIANCE targets 500% returns operator call buy now "
+        "guaranteed profit upper circuit tomorrow phishing site"
+    )
+    result = engine.analyze_text(pump_text)
+    assert isinstance(result, dict), "MRFE analyze_text must return dict"
+    ts = result.get("threat_score", -1)
+    assert 0.0 <= ts <= 1.0, f"threat_score out of range [0,1]: {ts}"
+    scrips = result.get("affected_scrips")
+    assert isinstance(scrips, list), f"affected_scrips must be list, got {type(scrips)}"
+    event_type = result.get("event_type")
+    assert event_type is not None, "event_type must not be None"
+    assert isinstance(result.get("processing_time_ms"), float), "processing_time_ms must be float"
+    assert result.get("market_impact") in ("low", "medium", "high", "critical"), \
+        f"market_impact invalid: {result.get('market_impact')}"
+check("MRFE analyze_text() — threat_score in [0,1], scrips list, event_type present", test_mrfe_text)
+
+# 28. MRFEEngine analyze_pdf() with minimal synthetic PDF
+def test_mrfe_pdf():
+    from models.mrfe.engine import MRFEEngine
+    engine = MRFEEngine()
+    # Build a minimal one-page PDF using reportlab
+    try:
+        from io import BytesIO
+        from reportlab.pdfgen import canvas as rl_canvas
+        buf = BytesIO()
+        c = rl_canvas.Canvas(buf)
+        c.drawString(72, 750, "INFY Q3 results: revenue miss, insider tip leaked. SEBI probe likely.")
+        c.save()
+        pdf_bytes = buf.getvalue()
+    except ImportError:
+        # Fallback: raw minimal valid PDF bytes
+        pdf_bytes = b"%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        pdf_bytes += b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        pdf_bytes += b"3 0 obj<</Type/Page/MediaBox[0 0 612 792]"
+        pdf_bytes += b"/Contents 4 0 R/Parent 2 0 R>>endobj\n"
+        pdf_bytes += b"4 0 obj<</Length 44>>stream\nBT /F1 12 Tf 72 720 Td (INFY test) Tj ET\nendstream endobj\n"
+        pdf_bytes += b"xref\n0 5\n0000000000 65535 f\ntrailer<</Size 5/Root 1 0 R>>\nstartxref\n%%EOF"
+
+    result = engine.analyze_pdf(pdf_bytes)
+    assert isinstance(result, dict), "analyze_pdf must return dict"
+    assert result.get("pdf_pages", 0) >= 1, f"pdf_pages must be >= 1, got {result.get('pdf_pages')}"
+    assert isinstance(result.get("processing_time_ms"), float) and result["processing_time_ms"] >= 0, \
+        "processing_time_ms must be non-negative float"
+check("MRFE analyze_pdf() — pdf_pages >= 1, processing_time_ms >= 0", test_mrfe_pdf)
+
+# 29. SimulationEngine import + run_full_simulation() with in-memory SQLite
+def test_simulation_engine():
+    from scoring.simulation_engine import SimulationEngine, SIMULATION_SCENARIOS
+    assert "pump_dump" in SIMULATION_SCENARIOS, "pump_dump scenario must be defined"
+    assert "all" not in SIMULATION_SCENARIOS, "'all' should not be a real scenario key"
+
+    # In-memory SQLite session
+    from sqlalchemy import create_engine as _ce
+    from sqlalchemy.orm import sessionmaker
+    from data.db.models import Base
+    _engine_mem = _ce("sqlite:///:memory:", connect_args={"check_same_thread": False})
+    Base.metadata.create_all(bind=_engine_mem)
+    _Session = sessionmaker(bind=_engine_mem)
+    db = _Session()
+
+    try:
+        result = SimulationEngine().run_full_simulation(db, scenario="pump_dump")
+        assert isinstance(result, dict), "Simulation result must be dict"
+        assert "pump_dump" in result.get("results", {}), "pump_dump must be in results"
+        assert result["results"]["pump_dump"]["status"] == "pass", \
+            f"pump_dump status must be 'pass', got: {result['results']['pump_dump']['status']}"
+        summary = result.get("summary", {})
+        assert summary.get("passed", 0) >= 1, f"At least 1 scenario must pass, got: {summary}"
+    finally:
+        db.close()
+check("SimulationEngine pump_dump — status='pass', summary.passed >= 1 (in-memory SQLite)", test_simulation_engine)
+
 print()
 print("=" * 56)
 print(f"Results: {pass_count} PASSED  |  {fail_count} FAILED")
 print("=" * 56)
 if fail_count == 0:
     print()
-    print("ARGUS is fully operational. 20/20 verified.")
+    print("ARGUS is fully operational. 29/29 verified.")
     print("Run: python demo/run_demo.py --case all")
 else:
     sys.exit(1)
-

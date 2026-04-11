@@ -92,9 +92,84 @@ def _escalate(api_base, token, alert_id):
         return False
 
 
+def _run_simulation(api_base, token, scenario):
+    try:
+        r = requests.post(
+            f"{api_base}/alerts/simulate",
+            headers=_headers(token),
+            json={"scenario": scenario},
+            timeout=60,
+        )
+        if r.ok:
+            return r.json(), None
+        return None, f"{r.status_code}: {r.text[:200]}"
+    except Exception as exc:
+        return None, str(exc)
+
+
 def render(api_base: str, token: str):
     st.markdown("## ARGUS Mitigation Center")
     st.caption("Real-time alert triage — apply, dismiss, or escalate recommended actions.")
+
+    # ── System Simulation ──
+    st.subheader("System Simulation")
+    sim_col1, sim_col2 = st.columns([2, 1])
+    with sim_col1:
+        sim_scenario = st.selectbox(
+            "Scenario",
+            ["all", "pump_dump", "spoofing", "circular_trading", "social_manipulation", "phishing_campaign"],
+            format_func=lambda x: {
+                "all": "All Scenarios",
+                "pump_dump": "Pump & Dump",
+                "spoofing": "Spoofing",
+                "circular_trading": "Circular Trading",
+                "social_manipulation": "Social Manipulation",
+                "phishing_campaign": "Phishing Campaign",
+            }.get(x, x),
+            label_visibility="collapsed",
+        )
+    with sim_col2:
+        run_sim = st.button("▶ Run Simulation", type="primary", use_container_width=True)
+
+    if run_sim:
+        with st.spinner("Running simulation... (this may take 10–30 seconds)"):
+            sim_result, sim_err = _run_simulation(api_base, token, sim_scenario)
+
+        if sim_err:
+            st.error(f"Simulation failed: {sim_err}")
+        elif sim_result:
+            st.success(f"Simulation complete: {sim_result['summary']['passed']}/{sim_result['summary']['total_scenarios']} scenarios passed")
+            with st.expander("Simulation Results", expanded=True):
+                s = sim_result.get("summary", {})
+                m1, m2, m3, m4 = st.columns(4)
+                m1.metric("Scenarios", s.get("total_scenarios", 0))
+                m2.metric("Passed", s.get("passed", 0))
+                m3.metric("Alerts Created", s.get("alerts_created", 0))
+                m4.metric("Avg Detect Time", f"{s.get('avg_detection_time_ms', 0):.0f}ms")
+
+                # Per-scenario table
+                rows = []
+                for name, r in sim_result.get("results", {}).items():
+                    rows.append({
+                        "Scenario": name.replace("_", " ").title(),
+                        "Status": r.get("status", "fail").upper(),
+                        "Threat Score": f"{r.get('threat_score', 0):.1%}",
+                        "Severity": r.get("severity", "").upper(),
+                        "Action": (r.get("recommended_action") or "log_only").replace("_", " "),
+                        "Detect Time (ms)": f"{r.get('detection_time_ms', 0):.0f}",
+                        "Synthetic": str(r.get("synthetic_data_used", True)),
+                    })
+
+                if rows:
+                    import pandas as pd
+                    df = pd.DataFrame(rows)
+                    # Color-code status
+                    def highlight_status(row):
+                        color = "#1a3d1a" if row["Status"] == "PASS" else "#3d1a1a"
+                        return [f"background-color: {color}"] * len(row)
+                    st.dataframe(df.style.apply(highlight_status, axis=1), use_container_width=True)
+
+    st.markdown("---")
 
     # Auto-refresh
     auto_refresh = st.sidebar.checkbox("Auto-refresh (30s)", value=True)

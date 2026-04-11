@@ -6,6 +6,7 @@ SENTINEL: Scalable ENTity Intelligence for NEtwork-Level threat detection
 from __future__ import annotations
 
 import os
+import time
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -42,6 +43,9 @@ _ADMIN_HASHED: str | None = None  # lazily hashed on first request
 
 ADMIN_USERNAME = "admin"
 ADMIN_ROLE = "admin"
+
+# Record startup time for uptime calculation
+_START_TIME = time.monotonic()
 
 
 def _get_admin_hash() -> str:
@@ -159,6 +163,9 @@ app.include_router(reports_router.router, prefix="/reports", tags=["Reports"])
 from api.routers import ps402 as ps402_router  # noqa: E402
 app.include_router(ps402_router.router, prefix="/ps402", tags=["PS-402 Digital Threats"])
 
+from api.routers import mrfe as mrfe_router  # noqa: E402
+app.include_router(mrfe_router.router, prefix="/mrfe", tags=["MRFE Analysis"])
+
 
 # ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -191,52 +198,113 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 @app.get("/health", response_model=HealthOut, tags=["System"])
 async def health_check(db: Session = Depends(get_db)):
-    """Returns SENTINEL service health status and loaded AI engine versions."""
+    """
+    Returns ARGUS service health status with DB/Redis/Kafka connection tests,
+    model load states, and uptime. No authentication required.
+    """
+    from data.db.session import is_postgres
+
     services: dict = {}
 
-    # DB check
+    # ── Database connectivity + latency ────────────────────────────────────────
+    db_backend = "postgresql" if is_postgres() else "sqlite"
     try:
         from sqlalchemy import text as sa_text
+        _t0 = time.monotonic()
         db.execute(sa_text("SELECT 1"))
-        services["db"] = "ok"
-    except Exception:
-        services["postgres"] = "error"
+        _db_latency = round((time.monotonic() - _t0) * 1000, 2)
+        services["database"] = {
+            "status": "ok",
+            "backend": db_backend,
+            "latency_ms": _db_latency,
+        }
+    except Exception as exc:
+        services["database"] = {
+            "status": "error",
+            "backend": db_backend,
+            "latency_ms": None,
+        }
+        logger.warning("DB health check failed: %s", exc)
 
-    # Redis check — optional; not_configured is acceptable for local dev
+    # ── Redis connectivity + latency ───────────────────────────────────────────
     redis_url = os.getenv("REDIS_URL", "")
-    if not redis_url or redis_url in ("redis://redis:6379", "redis://localhost:6379"):
-        try:
-            import redis as redis_lib
-            r = redis_lib.from_url(redis_url or "redis://localhost:6379", socket_connect_timeout=1)
-            r.ping()
-            r.close()
-            services["redis"] = "ok"
-        except Exception:
-            services["redis"] = "not_configured"
+    if not redis_url:
+        services["redis"] = {"status": "not_configured", "latency_ms": None}
     else:
         try:
             import redis as redis_lib
+            _t0 = time.monotonic()
             r = redis_lib.from_url(redis_url, socket_connect_timeout=2)
             r.ping()
             r.close()
-            services["redis"] = "ok"
-        except Exception:
-            services["redis"] = "error"
+            _redis_latency = round((time.monotonic() - _t0) * 1000, 2)
+            services["redis"] = {"status": "ok", "latency_ms": _redis_latency}
+        except Exception as exc:
+            services["redis"] = {"status": "error", "latency_ms": None}
+            logger.warning("Redis health check failed: %s", exc)
 
-    model_versions = {
-        "network_coordination_detector": "loaded" if _app_state.get("tcn") else "not_loaded",
-        "behavioral_anomaly_profiler": "loaded" if _app_state.get("autoencoder") else "not_loaded",
-        "novel_threat_detector": "loaded" if _app_state.get("zero_day") else "not_loaded",
-        "behavioral_fingerprint_store": "loaded" if _app_state.get("fp_store") else "not_loaded",
-        "mitigation_engine": "loaded" if _app_state.get("mitigation_engine") else "not_loaded",
-        "malicious_content_classifier": _app_state.get("misinfo_model") or "not_loaded",
+    # ── Kafka connectivity ─────────────────────────────────────────────────────
+    kafka_bootstrap = os.getenv("KAFKA_BOOTSTRAP", "")
+    if not kafka_bootstrap:
+        services["kafka"] = {"status": "not_configured"}
+    else:
+        try:
+            from kafka import KafkaAdminClient
+            admin = KafkaAdminClient(
+                bootstrap_servers=kafka_bootstrap,
+                request_timeout_ms=2000,
+                api_version_auto_timeout_ms=2000,
+            )
+            admin.list_topics()
+            admin.close()
+            services["kafka"] = {"status": "ok"}
+        except Exception as exc:
+            services["kafka"] = {"status": "error"}
+            logger.debug("Kafka health check failed (non-fatal): %s", exc)
+
+    # ── Model load states ──────────────────────────────────────────────────────
+    models = {
+        "gnn": {
+            "loaded": bool(_app_state.get("tcn")),
+            "weights": "tcn_weights.pt",
+        },
+        "dna": {
+            "loaded": bool(_app_state.get("autoencoder")),
+            "weights": "autoencoder_weights.pt",
+        },
+        "misinfo": {
+            "loaded": bool(_app_state.get("misinfo_model")),
+            "weights": "misinfo_weights.pkl",
+        },
+        "zero_day": {
+            "loaded": bool(_app_state.get("zero_day")),
+        },
+        "cross_market": {
+            "loaded": True,  # imported on demand; no persistent weights
+        },
     }
 
-    overall_status = "ok" if services.get("db") == "ok" else "degraded"
+    # ── Overall status logic ───────────────────────────────────────────────────
+    db_ok = services["database"]["status"] == "ok"
+    loaded_count = sum(1 for m in models.values() if m.get("loaded"))
+    redis_ok = services["redis"]["status"] in ("ok", "not_configured")
+    kafka_ok = services["kafka"]["status"] in ("ok", "not_configured")
+
+    if not db_ok:
+        overall = "unhealthy"
+    elif loaded_count < 3 or not (redis_ok and kafka_ok):
+        overall = "degraded"
+    else:
+        overall = "healthy"
+
+    uptime_seconds = round(time.monotonic() - _START_TIME, 1)
+
     return HealthOut(
-        status=overall_status,
-        system="SENTINEL",
+        status=overall,
         version="2.0.0",
+        backend=db_backend,
         services=services,
-        model_versions=model_versions,
+        models=models,
+        uptime_seconds=uptime_seconds,
+        timestamp=datetime.utcnow(),
     )

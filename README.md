@@ -1,4 +1,4 @@
-# SENTINEL / ARGUS — Digital Threat & Market Manipulation Detection Platform
+# ARGUS Market Surveillance
 
 > **Enterprise-Grade AI System for Real-Time Indian Market Surveillance & PS-402 Digital Threat Detection**  
 > Built for SEBI, NSE, BSE regulatory teams, compliance departments, and the NEOFuture Hackathon (PS-402).
